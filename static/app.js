@@ -95,8 +95,20 @@ class LogScanner {
             }
         });
         
-        this.uploadArea.addEventListener('click', () => {
+        this.uploadArea.addEventListener('click', (e) => {
+            // Don't trigger if clicking on the label/button (it handles the input itself)
+            // or if clicking on the input directly
+            if (e.target.tagName === 'LABEL' || 
+                e.target.tagName === 'INPUT' || 
+                e.target.closest('label')) {
+                return;
+            }
             this.fileInput.click();
+        });
+        
+        // Reset file input value to allow re-selecting the same file
+        this.fileInput.addEventListener('click', () => {
+            this.fileInput.value = '';
         });
         
         // Buttons

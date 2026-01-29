@@ -15,6 +15,49 @@ from copilot_client import CopilotClient
 import tiktoken
 
 
+def extract_json(text: str) -> dict:
+    """
+    Extract JSON from text that might contain markdown code fences or other wrapping.
+    """
+    if not text or not text.strip():
+        raise ValueError("Empty response received")
+    
+    text = text.strip()
+    
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Try to extract from markdown code fence
+    patterns = [
+        r'```json\s*([\s\S]*?)\s*```',  # ```json ... ```
+        r'```\s*([\s\S]*?)\s*```',       # ``` ... ```
+        r'\{[\s\S]*\}',                   # Raw JSON object
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                json_str = match.group(1) if match.lastindex else match.group(0)
+                return json.loads(json_str)
+            except (json.JSONDecodeError, IndexError):
+                continue
+    
+    # Last resort: find first { and last }
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start:end+1])
+        except json.JSONDecodeError:
+            pass
+    
+    raise ValueError(f"Could not extract JSON from response: {text[:200]}...")
+
+
 class LogAnalyzer:
     """Analyzes log files by chunking and processing with AI."""
     
@@ -168,22 +211,24 @@ class LogAnalyzer:
         
         system_prompt = """You are an expert log analyzer. Your task is to analyze log file chunks and identify issues, errors, warnings, and anomalies.
 
-For each analysis, you must return a JSON object with this exact structure:
+IMPORTANT: Return ONLY a valid JSON object, no markdown code fences or extra text.
+
+Return a JSON object with this structure:
 {
     "chunk_summary": "Brief summary of what's happening in this chunk",
     "issues": [
         {
             "severity": "error|warning|info",
-            "type": "The type of issue (e.g., 'Connection Error', 'Memory Warning', 'Authentication Failure')",
+            "type": "The type of issue",
             "description": "Detailed description of the issue",
-            "line_numbers": [line numbers where this appears],
-            "possible_causes": ["List of possible causes"],
-            "context": "Any relevant context from previous chunks that relates to this issue"
+            "line_numbers": [],
+            "possible_causes": [],
+            "context": ""
         }
     ],
-    "patterns_detected": ["List of patterns or trends noticed"],
-    "notable_events": ["Important events that aren't necessarily errors but worth noting"],
-    "running_issues_update": "How do the issues in this chunk relate to or continue from previous chunks?"
+    "patterns_detected": [],
+    "notable_events": [],
+    "running_issues_update": ""
 }
 
 Be thorough but concise. Focus on actionable insights."""
@@ -205,7 +250,9 @@ Analyze this chunk and return your findings as JSON. Consider how any issues mig
 3. Performance issues (timeouts, slow operations)
 4. Security concerns (authentication failures, permission issues)
 5. Resource problems (memory, disk, connections)
-6. Any patterns that might indicate systemic issues"""
+6. Any patterns that might indicate systemic issues
+
+Return ONLY the JSON object, no markdown code fences."""
 
         try:
             response = self.client.chat.completions.create(
@@ -214,11 +261,10 @@ Analyze this chunk and return your findings as JSON. Consider how any issues mig
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
-                response_format={"type": "json_object"}
+                temperature=0.3
             )
             
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json(response.choices[0].message.content)
             result['chunk_num'] = chunk_num
             result['lines'] = f"{chunk['start_line']}-{chunk['end_line']}"
             return result
@@ -284,7 +330,9 @@ Return a JSON object with this structure:
         "total_warnings": 0,
         "most_frequent_issue": "Description of most common issue"
     }
-}"""
+}
+
+Return ONLY the JSON object, no markdown code fences."""
 
         user_prompt = f"""Based on the complete analysis of this log file, provide a comprehensive final report.
 
@@ -297,7 +345,7 @@ Return a JSON object with this structure:
 ## Detected Patterns Across All Chunks:
 {json.dumps(list(set(all_patterns)), indent=2)}
 
-Please synthesize all this information into a final comprehensive report with actionable recommendations."""
+Please synthesize all this information into a final comprehensive report with actionable recommendations. Return ONLY the JSON object."""
 
         try:
             response = self.client.chat.completions.create(
@@ -306,11 +354,10 @@ Please synthesize all this information into a final comprehensive report with ac
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
-                response_format={"type": "json_object"}
+                temperature=0.3
             )
             
-            return json.loads(response.choices[0].message.content)
+            return extract_json(response.choices[0].message.content)
             
         except Exception as e:
             return {

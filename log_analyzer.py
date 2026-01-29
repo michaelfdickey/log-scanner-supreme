@@ -56,7 +56,8 @@ class LogAnalyzer:
         self.client = CopilotClient(api_key=api_key)
         self.model = model
         self.chunk_size = chunk_size
-        self.encoding = tiktoken.encoding_for_model('gpt-4o')
+        # Use cl100k_base encoding which is compatible with GPT-4 and newer models
+        self.encoding = tiktoken.get_encoding('cl100k_base')
     
     def count_tokens(self, text: str) -> int:
         """Count the number of tokens in a text string."""

@@ -146,16 +146,59 @@
             </div>
         </section>
 
-        <!-- All Issues -->
-        <section id="issues-section" class="card hidden">
-            <h2>⚠️ All Identified Issues</h2>
-            <div class="filter-bar">
-                <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="error">Errors</button>
-                <button class="filter-btn" data-filter="warning">Warnings</button>
-                <button class="filter-btn" data-filter="info">Info</button>
+        <!-- Chat Section -->
+        <section id="chat-section" class="card chat-card hidden">
+            <h2>💬 Chat with Your Logs</h2>
+            <p class="section-description">Ask questions about the log analysis. The context windows below are pre-populated but editable.</p>
+            
+            <div class="chat-context-area">
+                <div class="context-group">
+                    <div class="context-header">
+                        <label for="chunk-context">📄 Current Chunk Context</label>
+                        <button class="btn btn-small btn-secondary" id="refresh-chunk-context" title="Refresh from current chunk">🔄</button>
+                    </div>
+                    <textarea id="chunk-context" class="context-textarea" rows="6" placeholder="Select a chunk to populate context..."></textarea>
+                </div>
+                
+                <div class="context-group">
+                    <div class="context-header">
+                        <label for="full-context">📚 Full Analysis Context</label>
+                        <button class="btn btn-small btn-secondary" id="refresh-full-context" title="Refresh from full analysis">🔄</button>
+                    </div>
+                    <textarea id="full-context" class="context-textarea" rows="8" placeholder="Analysis context will appear here after processing..."></textarea>
+                </div>
             </div>
-            <div id="issues-list" class="issues-list"></div>
+            
+            <div class="chat-interface">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-welcome">
+                        <p>👋 Ask me anything about your log analysis!</p>
+                        <p class="muted">Examples: "Show me an example of the connection timeout error", "What caused the memory spike?", "Summarize the database issues"</p>
+                    </div>
+                </div>
+                
+                <div class="chat-input-area">
+                    <textarea id="chat-input" class="chat-input" rows="2" placeholder="Ask a question about your logs..."></textarea>
+                    <button class="btn btn-primary" id="chat-send">Send 📤</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- All Issues (Collapsible) -->
+        <section id="issues-section" class="card hidden">
+            <div class="collapsible-header" id="issues-header">
+                <h2>⚠️ All Identified Issues</h2>
+                <span class="collapse-icon">▼</span>
+            </div>
+            <div class="collapsible-content" id="issues-content">
+                <div class="filter-bar">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="error">Errors</button>
+                    <button class="filter-btn" data-filter="warning">Warnings</button>
+                    <button class="filter-btn" data-filter="info">Info</button>
+                </div>
+                <div id="issues-list" class="issues-list"></div>
+            </div>
         </section>
     </div>
 

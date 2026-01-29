@@ -341,6 +341,69 @@ def analyze_file_stream():
     )
 
 
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Handle chat queries about the log analysis"""
+    data = request.json
+    user_query = data.get('query', '')
+    chunk_context = data.get('chunk_context', '')
+    full_context = data.get('full_context', '')
+    
+    if not user_query:
+        return jsonify({'error': 'No query provided'}), 400
+    
+    settings = get_settings()
+    api_key = settings['api_key']
+    model = settings['model']
+    
+    if not api_key or not settings['api_key_configured']:
+        return jsonify({'error': 'GitHub PAT not configured'}), 400
+    
+    try:
+        from copilot_client import CopilotClient
+        client = CopilotClient(api_key=api_key)
+        
+        # Build the system prompt with context
+        system_prompt = """You are a helpful log analysis assistant. You have access to context from a log file analysis.
+Your job is to answer questions about the log file, help troubleshoot issues found, and provide insights.
+
+When the user asks for examples of errors or specific log entries, look in the provided context for relevant information.
+Be specific and cite relevant parts of the context when answering.
+If you cannot find the answer in the provided context, say so clearly.
+Format your responses clearly with markdown when appropriate."""
+
+        # Build context message
+        context_message = ""
+        if chunk_context:
+            context_message += f"## Current Chunk Context\n{chunk_context}\n\n"
+        if full_context:
+            context_message += f"## Full Analysis Context\n{full_context}\n\n"
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+        ]
+        
+        if context_message:
+            messages.append({"role": "user", "content": f"Here is the context from the log analysis:\n\n{context_message}"})
+            messages.append({"role": "assistant", "content": "I've reviewed the log analysis context. I'm ready to answer questions about the log file and help troubleshoot any issues found."})
+        
+        messages.append({"role": "user", "content": user_query})
+        
+        # Call the Copilot API
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=2000
+        )
+        
+        assistant_response = response.choices[0].message.content
+        
+        return jsonify({'response': assistant_response})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("\n" + "="*60)
     print("  Log Scanner Supreme")

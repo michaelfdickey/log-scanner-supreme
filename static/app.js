@@ -10,6 +10,7 @@ class LogScanner {
         this.allIssues = [];
         this.currentChunk = 0;
         this.settings = {};
+        this.finalSummary = null;
         
         this.init();
     }
@@ -64,6 +65,9 @@ class LogScanner {
         
         // Event Listeners
         this.setupEventListeners();
+        
+        // Initialize chat elements
+        this.initChatElements();
         
         // Load initial settings
         this.loadSettings();
@@ -352,6 +356,7 @@ class LogScanner {
         this.filePath = null;
         this.chunkResults = [];
         this.allIssues = [];
+        this.finalSummary = null;
         
         this.uploadArea.classList.remove('hidden');
         this.fileInfo.classList.add('hidden');
@@ -363,6 +368,20 @@ class LogScanner {
         this.chunksSection.classList.add('hidden');
         this.summarySection.classList.add('hidden');
         this.issuesSection.classList.add('hidden');
+        
+        // Hide and clear chat section
+        if (this.chatSection) {
+            this.chatSection.classList.add('hidden');
+        }
+        if (this.chatMessages) {
+            this.chatMessages.innerHTML = '';
+        }
+        if (this.chunkContextArea) {
+            this.chunkContextArea.value = '';
+        }
+        if (this.fullContextArea) {
+            this.fullContextArea.value = '';
+        }
     }
     
     async startAnalysis() {
@@ -463,6 +482,7 @@ class LogScanner {
                 break;
                 
             case 'final_summary':
+                this.finalSummary = data.data; // Store final summary for chat context
                 this.showFinalSummary(data.data);
                 this.progressFill.style.width = '95%';
                 break;
@@ -470,6 +490,8 @@ class LogScanner {
             case 'complete':
                 this.progressFill.style.width = '100%';
                 this.progressStatus.textContent = `Analysis complete! Analyzed ${data.data.chunks_analyzed} chunks, found ${data.data.total_issues} issues.`;
+                // Show chat section after analysis completes
+                this.showChatSection();
                 setTimeout(() => {
                     this.progressSection.classList.add('hidden');
                 }, 2000);
@@ -589,6 +611,8 @@ class LogScanner {
             tab.addEventListener('click', (e) => {
                 this.currentChunk = parseInt(e.target.dataset.chunk);
                 this.updateChunksSection();
+                // Update chat context when switching chunks
+                this.updateChatContexts();
             });
         });
         
@@ -599,7 +623,7 @@ class LogScanner {
     showChunkContent(result) {
         let html = `
             <div class="chunk-summary">
-                <h4>Lines ${result.lines}</h4>
+                <h4>📋 Chunk TL;DR <span class="chunk-lines">(Lines ${result.lines})</span></h4>
                 <p>${result.chunk_summary || 'No summary available'}</p>
             </div>
         `;
@@ -631,22 +655,57 @@ class LogScanner {
             html += '</div>';
         }
         
-        // Patterns
-        if (result.patterns_detected && result.patterns_detected.length > 0) {
-            html += '<div class="chunk-patterns"><h4>📊 Patterns Detected:</h4><ul>';
-            result.patterns_detected.forEach(pattern => {
-                html += `<li>${pattern}</li>`;
+        // Issue Counts - aggregate similar issues
+        if (result.issues && result.issues.length > 0) {
+            const issueCounts = {};
+            result.issues.forEach(issue => {
+                const key = `${issue.severity}:${issue.type}`;
+                if (!issueCounts[key]) {
+                    issueCounts[key] = { severity: issue.severity, type: issue.type, count: 0 };
+                }
+                issueCounts[key].count++;
             });
-            html += '</ul></div>';
+            
+            const counts = Object.values(issueCounts);
+            if (counts.length > 0) {
+                html += '<div class="chunk-issue-counts"><h4>📊 Issue Counts:</h4><div class="issue-counts-grid">';
+                counts.sort((a, b) => b.count - a.count).forEach(item => {
+                    html += `
+                        <div class="issue-count-item ${item.severity}">
+                            <span class="issue-count-number">${item.count}</span>
+                            <span class="issue-count-label">${item.type}</span>
+                            <span class="severity-badge ${item.severity}">${item.severity}</span>
+                        </div>
+                    `;
+                });
+                html += '</div></div>';
+            }
         }
         
-        // Notable Events
-        if (result.notable_events && result.notable_events.length > 0) {
-            html += '<div class="chunk-events"><h4>📝 Notable Events:</h4><ul>';
-            result.notable_events.forEach(event => {
-                html += `<li>${event}</li>`;
-            });
-            html += '</ul></div>';
+        // Summary - combines patterns and notable events
+        const hasPatterns = result.patterns_detected && result.patterns_detected.length > 0;
+        const hasEvents = result.notable_events && result.notable_events.length > 0;
+        
+        if (hasPatterns || hasEvents) {
+            html += '<div class="chunk-summary-section"><h4>📝 Summary:</h4>';
+            
+            if (hasPatterns) {
+                html += '<div class="summary-subsection"><strong>Patterns Detected:</strong><ul>';
+                result.patterns_detected.forEach(pattern => {
+                    html += `<li>${pattern}</li>`;
+                });
+                html += '</ul></div>';
+            }
+            
+            if (hasEvents) {
+                html += '<div class="summary-subsection"><strong>Notable Events:</strong><ul>';
+                result.notable_events.forEach(event => {
+                    html += `<li>${event}</li>`;
+                });
+                html += '</ul></div>';
+            }
+            
+            html += '</div>';
         }
         
         // Running Issues Update
@@ -788,6 +847,304 @@ class LogScanner {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    // ==================== Chat Methods ====================
+    
+    initChatElements() {
+        // Chat DOM elements
+        this.chatSection = document.getElementById('chat-section');
+        this.chunkContextArea = document.getElementById('chunk-context');
+        this.fullContextArea = document.getElementById('full-context');
+        this.chatMessages = document.getElementById('chat-messages');
+        this.chatInput = document.getElementById('chat-input');
+        this.chatSend = document.getElementById('chat-send');
+        this.issuesToggle = document.querySelector('.issues-toggle');
+        this.collapsibleContent = document.querySelector('#issues-section .collapsible-content');
+        
+        if (this.chatSend) {
+            this.chatSend.addEventListener('click', () => this.sendChatMessage());
+        }
+        
+        if (this.chatInput) {
+            this.chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendChatMessage();
+                }
+            });
+        }
+        
+        // Collapsible issues section toggle
+        if (this.issuesToggle) {
+            this.issuesToggle.addEventListener('click', () => {
+                this.issuesToggle.classList.toggle('collapsed');
+                if (this.collapsibleContent) {
+                    this.collapsibleContent.classList.toggle('collapsed');
+                }
+            });
+        }
+    }
+    
+    generateChunkContext() {
+        if (this.chunkResults.length === 0) return '';
+        
+        const currentResult = this.chunkResults[this.currentChunk];
+        if (!currentResult) return '';
+        
+        let context = `### Chunk ${currentResult.chunk_num} (Lines ${currentResult.lines})\n\n`;
+        
+        // TL;DR summary
+        if (currentResult.chunk_summary) {
+            context += `**TL;DR:** ${currentResult.chunk_summary}\n\n`;
+        }
+        
+        // Issues in this chunk
+        if (currentResult.issues && currentResult.issues.length > 0) {
+            context += `**Issues Found (${currentResult.issues.length}):**\n`;
+            currentResult.issues.forEach((issue, idx) => {
+                context += `${idx + 1}. [${issue.severity.toUpperCase()}] ${issue.type}: ${issue.description}\n`;
+                if (issue.possible_causes && issue.possible_causes.length > 0) {
+                    context += `   Possible causes: ${issue.possible_causes.join(', ')}\n`;
+                }
+            });
+            context += '\n';
+        }
+        
+        // Patterns detected
+        if (currentResult.patterns_detected && currentResult.patterns_detected.length > 0) {
+            context += `**Patterns Detected:**\n`;
+            currentResult.patterns_detected.forEach(pattern => {
+                context += `- ${pattern}\n`;
+            });
+            context += '\n';
+        }
+        
+        // Notable events
+        if (currentResult.notable_events && currentResult.notable_events.length > 0) {
+            context += `**Notable Events:**\n`;
+            currentResult.notable_events.forEach(event => {
+                context += `- ${event}\n`;
+            });
+            context += '\n';
+        }
+        
+        // Running issues update
+        if (currentResult.running_issues_update) {
+            context += `**Context Connection:** ${currentResult.running_issues_update}\n`;
+        }
+        
+        return context;
+    }
+    
+    generateFullContext() {
+        let context = '';
+        
+        // Overall summary from final analysis
+        if (this.finalSummary) {
+            context += `### Overall Analysis Summary\n\n`;
+            context += `**Health Status:** ${this.finalSummary.overall_health || 'Unknown'}\n\n`;
+            
+            if (this.finalSummary.executive_summary) {
+                context += `**Executive Summary:** ${this.finalSummary.executive_summary}\n\n`;
+            }
+            
+            if (this.finalSummary.issue_timeline) {
+                context += `**Issue Timeline:** ${this.finalSummary.issue_timeline}\n\n`;
+            }
+            
+            // Key findings
+            if (this.finalSummary.key_findings && this.finalSummary.key_findings.length > 0) {
+                context += `**Key Findings:**\n`;
+                this.finalSummary.key_findings.forEach(finding => {
+                    context += `- [${finding.severity.toUpperCase()}] ${finding.title}: ${finding.description}\n`;
+                });
+                context += '\n';
+            }
+            
+            // Root cause analysis
+            if (this.finalSummary.root_cause_analysis && this.finalSummary.root_cause_analysis.length > 0) {
+                context += `**Root Cause Analysis:**\n`;
+                this.finalSummary.root_cause_analysis.forEach(rca => {
+                    context += `- Issue: ${rca.issue}\n  Root Cause: ${rca.likely_root_cause} (${rca.confidence} confidence)\n`;
+                });
+                context += '\n';
+            }
+        }
+        
+        // All issues summary by severity
+        if (this.allIssues.length > 0) {
+            const errorCount = this.allIssues.filter(i => i.severity === 'error').length;
+            const warningCount = this.allIssues.filter(i => i.severity === 'warning').length;
+            const infoCount = this.allIssues.filter(i => i.severity === 'info').length;
+            
+            context += `### All Issues Summary\n`;
+            context += `Total: ${this.allIssues.length} issues (${errorCount} errors, ${warningCount} warnings, ${infoCount} info)\n\n`;
+            
+            // Group issues by type
+            const issuesByType = {};
+            this.allIssues.forEach(issue => {
+                const key = `${issue.severity}:${issue.type}`;
+                if (!issuesByType[key]) {
+                    issuesByType[key] = { severity: issue.severity, type: issue.type, count: 0, examples: [] };
+                }
+                issuesByType[key].count++;
+                if (issuesByType[key].examples.length < 2) {
+                    issuesByType[key].examples.push(issue.description);
+                }
+            });
+            
+            Object.values(issuesByType).sort((a, b) => b.count - a.count).forEach(item => {
+                context += `- **${item.type}** (${item.severity}): ${item.count} occurrences\n`;
+                item.examples.forEach(ex => {
+                    context += `  Example: ${ex.substring(0, 100)}${ex.length > 100 ? '...' : ''}\n`;
+                });
+            });
+        }
+        
+        // Chunk summaries
+        if (this.chunkResults.length > 0) {
+            context += `\n### Chunk-by-Chunk Summary\n`;
+            this.chunkResults.forEach(chunk => {
+                context += `\n**Chunk ${chunk.chunk_num}** (Lines ${chunk.lines}):\n`;
+                context += chunk.chunk_summary || 'No summary';
+                context += '\n';
+            });
+        }
+        
+        return context;
+    }
+    
+    updateChatContexts() {
+        if (this.chunkContextArea) {
+            this.chunkContextArea.value = this.generateChunkContext();
+        }
+        if (this.fullContextArea) {
+            this.fullContextArea.value = this.generateFullContext();
+        }
+    }
+    
+    showChatSection() {
+        if (this.chatSection) {
+            this.chatSection.classList.remove('hidden');
+            this.updateChatContexts();
+        }
+    }
+    
+    async sendChatMessage() {
+        const query = this.chatInput.value.trim();
+        if (!query) return;
+        
+        // Disable input while sending
+        this.chatInput.disabled = true;
+        this.chatSend.disabled = true;
+        
+        // Add user message to chat
+        this.addChatMessage(query, 'user');
+        this.chatInput.value = '';
+        
+        // Show typing indicator
+        const typingId = this.showTypingIndicator();
+        
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    query: query,
+                    chunk_context: this.chunkContextArea ? this.chunkContextArea.value : '',
+                    full_context: this.fullContextArea ? this.fullContextArea.value : ''
+                })
+            });
+            
+            const data = await response.json();
+            
+            // Remove typing indicator
+            this.removeTypingIndicator(typingId);
+            
+            if (data.error) {
+                this.addChatMessage(`Error: ${data.error}`, 'assistant error');
+            } else {
+                this.addChatMessage(data.response, 'assistant');
+            }
+            
+        } catch (error) {
+            this.removeTypingIndicator(typingId);
+            this.addChatMessage(`Error: ${error.message}`, 'assistant error');
+        } finally {
+            this.chatInput.disabled = false;
+            this.chatSend.disabled = false;
+            this.chatInput.focus();
+        }
+    }
+    
+    addChatMessage(content, role) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${role}`;
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble';
+        
+        // Convert markdown-style formatting to HTML for assistant messages
+        if (role === 'assistant' && !role.includes('error')) {
+            bubble.innerHTML = this.formatChatResponse(content);
+        } else {
+            bubble.textContent = content;
+        }
+        
+        messageDiv.appendChild(bubble);
+        this.chatMessages.appendChild(messageDiv);
+        
+        // Scroll to bottom
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    }
+    
+    formatChatResponse(text) {
+        // Simple markdown formatting
+        let html = this.escapeHtml(text);
+        
+        // Bold
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        
+        // Italic
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        
+        // Code blocks
+        html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+        
+        // Inline code
+        html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+        
+        // Line breaks
+        html = html.replace(/\n/g, '<br>');
+        
+        return html;
+    }
+    
+    showTypingIndicator() {
+        const id = 'typing-' + Date.now();
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'chat-message assistant';
+        messageDiv.id = id;
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble typing';
+        bubble.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+        
+        messageDiv.appendChild(bubble);
+        this.chatMessages.appendChild(messageDiv);
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        
+        return id;
+    }
+    
+    removeTypingIndicator(id) {
+        const element = document.getElementById(id);
+        if (element) {
+            element.remove();
+        }
     }
 }
 

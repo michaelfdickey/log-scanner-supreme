@@ -382,6 +382,9 @@ class LogScanner {
         if (this.fullContextArea) {
             this.fullContextArea.value = '';
         }
+        // Reset shadow context
+        this.shadowContext = '';
+        this.lastQuery = '';
     }
     
     async startAnalysis() {
@@ -1027,24 +1030,58 @@ class LogScanner {
     showChatSection() {
         if (this.chatSection) {
             this.chatSection.classList.remove('hidden');
+            this.shadowContext = ''; // Initialize shadow context
             this.updateChatContexts();
         }
     }
     
-    async sendChatMessage() {
-        const query = this.chatInput.value.trim();
+    getRawExcerptForCurrentChunk() {
+        if (this.chunkResults.length === 0) return '';
+        const currentResult = this.chunkResults[this.currentChunk];
+        if (!currentResult || !currentResult.raw_excerpt) return '';
+        return `### Raw Log Lines from Chunk ${currentResult.chunk_num} (Lines ${currentResult.lines}):\n\`\`\`\n${currentResult.raw_excerpt}\n\`\`\``;
+    }
+    
+    getAllRawExcerpts() {
+        if (this.chunkResults.length === 0) return '';
+        let excerpts = [];
+        this.chunkResults.forEach(chunk => {
+            if (chunk.raw_excerpt) {
+                excerpts.push(`### Chunk ${chunk.chunk_num} (Lines ${chunk.lines}):\n\`\`\`\n${chunk.raw_excerpt}\n\`\`\``);
+            }
+        });
+        return excerpts.join('\n\n');
+    }
+    
+    async sendChatMessage(retryWithRawContent = false) {
+        const query = retryWithRawContent ? this.lastQuery : this.chatInput.value.trim();
         if (!query) return;
+        
+        // Store query for potential retry
+        this.lastQuery = query;
         
         // Disable input while sending
         this.chatInput.disabled = true;
         this.chatSend.disabled = true;
         
-        // Add user message to chat
-        this.addChatMessage(query, 'user');
-        this.chatInput.value = '';
+        // Add user message to chat (only on first attempt)
+        if (!retryWithRawContent) {
+            this.addChatMessage(query, 'user');
+            this.chatInput.value = '';
+        }
         
         // Show typing indicator
         const typingId = this.showTypingIndicator();
+        
+        // If retrying, add raw content to shadow context
+        if (retryWithRawContent) {
+            this.updateTypingIndicator(typingId, 'Fetching additional log content...');
+            // Add current chunk's raw excerpt to shadow context
+            const rawExcerpt = this.getRawExcerptForCurrentChunk();
+            if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
+                this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
+            }
+        }
         
         try {
             const response = await fetch('/api/chat', {
@@ -1055,11 +1092,21 @@ class LogScanner {
                 body: JSON.stringify({
                     query: query,
                     chunk_context: this.chunkContextArea ? this.chunkContextArea.value : '',
-                    full_context: this.fullContextArea ? this.fullContextArea.value : ''
+                    full_context: this.fullContextArea ? this.fullContextArea.value : '',
+                    shadow_context: this.shadowContext || ''
                 })
             });
             
             const data = await response.json();
+            
+            // Check if we need to retry with raw content
+            if (data.needs_raw_content && !retryWithRawContent) {
+                // Remove current typing indicator
+                this.removeTypingIndicator(typingId);
+                // Retry with raw content
+                await this.sendChatMessage(true);
+                return;
+            }
             
             // Remove typing indicator
             this.removeTypingIndicator(typingId);
@@ -1077,6 +1124,16 @@ class LogScanner {
             this.chatInput.disabled = false;
             this.chatSend.disabled = false;
             this.chatInput.focus();
+        }
+    }
+    
+    updateTypingIndicator(id, message) {
+        const element = document.getElementById(id);
+        if (element) {
+            const bubble = element.querySelector('.chat-bubble');
+            if (bubble) {
+                bubble.innerHTML = `<span class="context-loading">${message}</span> <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>`;
+            }
         }
     }
     

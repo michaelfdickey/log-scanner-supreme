@@ -348,6 +348,7 @@ def chat():
     user_query = data.get('query', '')
     chunk_context = data.get('chunk_context', '')
     full_context = data.get('full_context', '')
+    shadow_context = data.get('shadow_context', '')
     
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
@@ -363,19 +364,28 @@ def chat():
         from copilot_client import CopilotClient
         client = CopilotClient(api_key=api_key)
         
-        # Build the system prompt with context
+        # Build the system prompt with context expansion instructions
         system_prompt = """You are a helpful log analysis assistant. You have access to context from a log file analysis.
 Your job is to answer questions about the log file, help troubleshoot issues found, and provide insights.
 
-When the user asks for examples of errors or specific log entries, look in the provided context for relevant information.
+When the user asks for examples of errors, specific log entries, or actual error messages:
+1. First look in the "Raw Log Content" section if available - this contains actual log lines
+2. If you find what they're asking for, quote the relevant lines directly
+3. If you cannot find the specific information they need in the provided context, respond with EXACTLY this format:
+   [NEED_RAW_CONTENT] I need to see the actual log lines to answer this question. The current context only contains summaries.
+   
+The [NEED_RAW_CONTENT] tag tells the system to add raw log content to the context and retry.
+
 Be specific and cite relevant parts of the context when answering.
-If you cannot find the answer in the provided context, say so clearly.
-Format your responses clearly with markdown when appropriate."""
+Format your responses clearly with markdown when appropriate.
+When showing log lines, use code blocks for readability."""
 
         # Build context message
         context_message = ""
         if chunk_context:
-            context_message += f"## Current Chunk Context\n{chunk_context}\n\n"
+            context_message += f"## Current Chunk Context (Summary)\n{chunk_context}\n\n"
+        if shadow_context:
+            context_message += f"## Raw Log Content\n{shadow_context}\n\n"
         if full_context:
             context_message += f"## Full Analysis Context\n{full_context}\n\n"
         
@@ -385,7 +395,7 @@ Format your responses clearly with markdown when appropriate."""
         
         if context_message:
             messages.append({"role": "user", "content": f"Here is the context from the log analysis:\n\n{context_message}"})
-            messages.append({"role": "assistant", "content": "I've reviewed the log analysis context. I'm ready to answer questions about the log file and help troubleshoot any issues found."})
+            messages.append({"role": "assistant", "content": "I've reviewed the log analysis context. I'm ready to answer questions about the log file and help troubleshoot any issues found. I can see both summaries and raw log content when available."})
         
         messages.append({"role": "user", "content": user_query})
         
@@ -398,7 +408,13 @@ Format your responses clearly with markdown when appropriate."""
         
         assistant_response = response.choices[0].message.content
         
-        return jsonify({'response': assistant_response})
+        # Check if more context is needed
+        needs_raw_content = '[NEED_RAW_CONTENT]' in assistant_response
+        
+        return jsonify({
+            'response': assistant_response.replace('[NEED_RAW_CONTENT]', '').strip() if needs_raw_content else assistant_response,
+            'needs_raw_content': needs_raw_content
+        })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

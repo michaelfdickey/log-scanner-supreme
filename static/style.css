@@ -1077,6 +1077,41 @@ header h1 {
     font-size: 0.8rem;
 }
 
+/* Typing indicator */
+.chat-bubble.typing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.typing-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    display: inline-block;
+    animation: typingBounce 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-4px); }
+}
+
+.context-loading {
+    color: var(--primary-color);
+    font-style: italic;
+    margin-right: 4px;
+}
+
 .chat-bubble code {
     background: rgba(0, 0, 0, 0.2);
     padding: 0.1rem 0.3rem;

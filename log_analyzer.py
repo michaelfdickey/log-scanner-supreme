@@ -182,6 +182,50 @@ class LogAnalyzer:
         
         return chunks
     
+    def _extract_raw_excerpt(self, chunk_content: str, max_lines: int = 50) -> str:
+        """
+        Extract key lines from a chunk for raw context.
+        Prioritizes error/warning lines and their surrounding context.
+        """
+        lines = chunk_content.split('\n')
+        
+        # Find lines containing errors/warnings
+        important_line_indices = set()
+        for i, line in enumerate(lines):
+            for pattern in self.ERROR_PATTERNS + self.WARNING_PATTERNS:
+                if re.search(pattern, line, re.IGNORECASE):
+                    # Add this line and 2 lines of context before/after
+                    for j in range(max(0, i-2), min(len(lines), i+3)):
+                        important_line_indices.add(j)
+                    break
+        
+        if important_line_indices:
+            # Sort and get the important lines with their line numbers
+            sorted_indices = sorted(important_line_indices)
+            excerpt_lines = []
+            prev_idx = -2
+            for idx in sorted_indices:
+                if idx > prev_idx + 1:
+                    excerpt_lines.append('...')  # Gap marker
+                excerpt_lines.append(f"L{idx + 1}: {lines[idx][:300]}")
+                prev_idx = idx
+            return '\n'.join(excerpt_lines[:max_lines])
+        else:
+            # No errors found, return first and last portions
+            excerpt = []
+            if len(lines) <= max_lines:
+                for i, line in enumerate(lines):
+                    excerpt.append(f"L{i+1}: {line[:300]}")
+            else:
+                # First 20 lines
+                for i in range(min(20, len(lines))):
+                    excerpt.append(f"L{i+1}: {lines[i][:300]}")
+                excerpt.append(f'... ({len(lines) - 40} lines omitted) ...')
+                # Last 20 lines
+                for i in range(max(20, len(lines)-20), len(lines)):
+                    excerpt.append(f"L{i+1}: {lines[i][:300]}")
+            return '\n'.join(excerpt)
+    
     def _analyze_chunk(self, chunk: dict, chunk_num: int, total_chunks: int, 
                        running_summary: str, previous_issues: list) -> dict:
         """
@@ -470,6 +514,10 @@ Please synthesize all this information into a final comprehensive report with ac
                 chunk, i, len(chunks),
                 running_summary, all_issues
             )
+            
+            # Add raw excerpt for chat context
+            result['raw_excerpt'] = self._extract_raw_excerpt(chunk['content'])
+            
             chunk_results.append(result)
             
             # Update context

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Scanner Supreme</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Log Scanner Supreme</h1>
+            <p class="tagline">AI-Powered Log Analysis with Context Awareness</p>
+        </header>
+
+        <!-- Upload Section -->
+        <section id="upload-section" class="card">
+            <h2>📁 Upload Log File</h2>
+            <div class="upload-area" id="upload-area">
+                <div class="upload-content">
+                    <span class="upload-icon">📄</span>
+                    <p>Drag and drop your log file here</p>
+                    <p class="small">or</p>
+                    <label class="btn btn-primary">
+                        Browse Files
+                        <input type="file" id="file-input" accept=".log,.txt,.json,.xml,.csv,.out,.err" hidden>
+                    </label>
+                    <p class="small muted">Supported: .log, .txt, .json, .xml, .csv, .out, .err (max 50MB)</p>
+                </div>
+            </div>
+            <div id="file-info" class="file-info hidden">
+                <div class="file-details">
+                    <span class="file-icon">📋</span>
+                    <div>
+                        <strong id="file-name"></strong>
+                        <span id="file-meta" class="muted"></span>
+                    </div>
+                </div>
+                <button class="btn btn-success" id="analyze-btn">🚀 Analyze Log</button>
+                <button class="btn btn-secondary" id="clear-btn">✕ Clear</button>
+            </div>
+        </section>
+
+        <!-- Progress Section -->
+        <section id="progress-section" class="card hidden">
+            <h2>⏳ Analysis Progress</h2>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <p id="progress-status" class="progress-status">Initializing...</p>
+            </div>
+            <div id="chunk-progress" class="chunk-progress"></div>
+        </section>
+
+        <!-- Preprocessing Results -->
+        <section id="preprocessing-section" class="card hidden">
+            <h2>🔎 Quick Scan Results</h2>
+            <div class="stats-grid">
+                <div class="stat-card error">
+                    <span class="stat-number" id="error-count">0</span>
+                    <span class="stat-label">Potential Errors</span>
+                </div>
+                <div class="stat-card warning">
+                    <span class="stat-number" id="warning-count">0</span>
+                    <span class="stat-label">Potential Warnings</span>
+                </div>
+            </div>
+            <div id="sample-issues" class="sample-issues"></div>
+        </section>
+
+        <!-- Chunk Analysis Results -->
+        <section id="chunks-section" class="card hidden">
+            <h2>📊 Chunk-by-Chunk Analysis</h2>
+            <div class="chunk-tabs" id="chunk-tabs"></div>
+            <div id="chunk-content" class="chunk-content"></div>
+        </section>
+
+        <!-- Final Summary -->
+        <section id="summary-section" class="card hidden">
+            <h2>📝 Final Analysis Report</h2>
+            
+            <div id="executive-summary" class="executive-summary"></div>
+            
+            <div class="section-group">
+                <h3>🎯 Key Findings</h3>
+                <div id="key-findings" class="findings-list"></div>
+            </div>
+            
+            <div class="section-group">
+                <h3>🔬 Root Cause Analysis</h3>
+                <div id="root-cause" class="root-cause-list"></div>
+            </div>
+            
+            <div class="section-group">
+                <h3>💡 Recommendations</h3>
+                <div id="recommendations" class="recommendations-list"></div>
+            </div>
+        </section>
+
+        <!-- All Issues -->
+        <section id="issues-section" class="card hidden">
+            <h2>⚠️ All Identified Issues</h2>
+            <div class="filter-bar">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="error">Errors</button>
+                <button class="filter-btn" data-filter="warning">Warnings</button>
+                <button class="filter-btn" data-filter="info">Info</button>
+            </div>
+            <div id="issues-list" class="issues-list"></div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

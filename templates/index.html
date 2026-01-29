@@ -84,8 +84,14 @@
                         <span id="file-meta" class="muted"></span>
                     </div>
                 </div>
-                <button class="btn btn-success" id="analyze-btn">🚀 Analyze Log</button>
-                <button class="btn btn-secondary" id="clear-btn">✕ Clear</button>
+                <div class="issue-description-container">
+                    <label for="issue-description" class="issue-description-label">Description of the issue (optional)</label>
+                    <textarea id="issue-description" class="issue-description-input" placeholder="e.g., Users are reporting intermittent 500 errors when uploading files..." rows="2"></textarea>
+                </div>
+                <div class="file-actions">
+                    <button class="btn btn-success" id="analyze-btn">🚀 Analyze Log</button>
+                    <button class="btn btn-secondary" id="clear-btn">✕ Clear</button>
+                </div>
             </div>
         </section>
 

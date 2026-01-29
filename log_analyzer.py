@@ -253,27 +253,38 @@ class LogAnalyzer:
 ---
 """
         
-        system_prompt = """You are an expert log analyzer. Your task is to analyze log file chunks and identify issues, errors, warnings, and anomalies.
+        # Build focus area instruction if issue description is provided
+        focus_instruction = ""
+        if hasattr(self, 'issue_description') and self.issue_description:
+            focus_instruction = f"""
+
+## PRIMARY FOCUS
+The user is specifically investigating: "{self.issue_description}"
+Pay special attention to anything related to this issue.
+
+HOWEVER, you must ALSO identify and report any other serious errors, critical failures, security issues, or significant warnings you find, even if unrelated to the primary focus. Do not ignore important problems just because they don't match the user's description."""
+        
+        system_prompt = f"""You are an expert log analyzer. Your task is to analyze log file chunks and identify issues, errors, warnings, and anomalies.{focus_instruction}
 
 IMPORTANT: Return ONLY a valid JSON object, no markdown code fences or extra text.
 
 Return a JSON object with this structure:
-{
+{{
     "chunk_summary": "Brief summary of what's happening in this chunk",
     "issues": [
-        {
+        {{
             "severity": "error|warning|info",
             "type": "The type of issue",
             "description": "Detailed description of the issue",
             "line_numbers": [],
             "possible_causes": [],
             "context": ""
-        }
+        }}
     ],
     "patterns_detected": [],
     "notable_events": [],
     "running_issues_update": ""
-}
+}}
 
 Be thorough but concise. Focus on actionable insights."""
 
@@ -464,12 +475,17 @@ Please synthesize all this information into a final comprehensive report with ac
             'final_summary': final_summary
         }
     
-    def analyze_streaming(self, content: str) -> Generator[dict, None, None]:
+    def analyze_streaming(self, content: str, issue_description: str = '') -> Generator[dict, None, None]:
         """
         Perform analysis with streaming updates.
         
+        Args:
+            content: The log file content to analyze
+            issue_description: Optional description of the issue to focus on
+        
         Yields updates as each chunk is processed.
         """
+        self.issue_description = issue_description
         # Pre-process
         yield {'type': 'status', 'message': 'Pre-processing log file...'}
         preprocessing = self._preprocess_log(content)

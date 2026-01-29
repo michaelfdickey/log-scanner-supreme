@@ -24,6 +24,7 @@ class LogScanner {
         this.fileMeta = document.getElementById('file-meta');
         this.analyzeBtn = document.getElementById('analyze-btn');
         this.clearBtn = document.getElementById('clear-btn');
+        this.issueDescription = document.getElementById('issue-description');
         
         this.progressSection = document.getElementById('progress-section');
         this.progressFill = document.getElementById('progress-fill');
@@ -397,6 +398,11 @@ class LogScanner {
         // Reset shadow context
         this.shadowContext = '';
         this.lastQuery = '';
+        
+        // Clear issue description
+        if (this.issueDescription) {
+            this.issueDescription.value = '';
+        }
     }
     
     async startAnalysis() {
@@ -433,12 +439,16 @@ class LogScanner {
         this.analyzeBtn.textContent = '⏳ Analyzing...';
         
         try {
+            const issueDesc = this.issueDescription ? this.issueDescription.value.trim() : '';
             const response = await fetch('/analyze-stream', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ filepath: this.filePath })
+                body: JSON.stringify({ 
+                    filepath: this.filePath,
+                    issue_description: issueDesc
+                })
             });
             
             const reader = response.body.getReader();

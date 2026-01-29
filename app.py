@@ -314,12 +314,15 @@ def analyze_file_stream():
             
             analyzer = LogAnalyzer(api_key=api_key, model=model, chunk_size=chunk_size)
             
+            # Get issue description if provided
+            issue_description = data.get('issue_description', '')
+            
             # Read file content
             with open(filepath, 'r', errors='replace') as f:
                 content = f.read()
             
             # Stream analysis results
-            for update in analyzer.analyze_streaming(content):
+            for update in analyzer.analyze_streaming(content, issue_description=issue_description):
                 yield f"data: {json.dumps(update)}\n\n"
             
             # Clean up

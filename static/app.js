@@ -874,8 +874,6 @@ class LogScanner {
         this.chatMessages = document.getElementById('chat-messages');
         this.chatInput = document.getElementById('chat-input');
         this.chatSend = document.getElementById('chat-send');
-        this.issuesToggle = document.querySelector('.issues-toggle');
-        this.collapsibleContent = document.querySelector('#issues-section .collapsible-content');
         
         if (this.chatSend) {
             this.chatSend.addEventListener('click', () => this.sendChatMessage());
@@ -890,15 +888,17 @@ class LogScanner {
             });
         }
         
-        // Collapsible issues section toggle
-        if (this.issuesToggle) {
-            this.issuesToggle.addEventListener('click', () => {
-                this.issuesToggle.classList.toggle('collapsed');
-                if (this.collapsibleContent) {
-                    this.collapsibleContent.classList.toggle('collapsed');
+        // Collapsible issues section toggle - use event delegation since section may not exist yet
+        document.addEventListener('click', (e) => {
+            const header = e.target.closest('#issues-header');
+            if (header) {
+                header.classList.toggle('collapsed');
+                const content = document.getElementById('issues-content');
+                if (content) {
+                    content.classList.toggle('collapsed');
                 }
-            });
-        }
+            }
+        });
     }
     
     generateChunkContext() {
@@ -1054,6 +1054,13 @@ class LogScanner {
         return `### Raw Log Lines from Chunk ${currentResult.chunk_num} (Lines ${currentResult.lines}):\n\`\`\`\n${currentResult.raw_excerpt}\n\`\`\``;
     }
     
+    getRawExcerptForChunk(chunkNum) {
+        if (this.chunkResults.length === 0) return '';
+        const chunk = this.chunkResults.find(c => c.chunk_num === chunkNum);
+        if (!chunk || !chunk.raw_excerpt) return '';
+        return `### Raw Log Lines from Chunk ${chunk.chunk_num} (Lines ${chunk.lines}):\n\`\`\`\n${chunk.raw_excerpt}\n\`\`\``;
+    }
+    
     getAllRawExcerpts() {
         if (this.chunkResults.length === 0) return '';
         let excerpts = [];
@@ -1065,7 +1072,7 @@ class LogScanner {
         return excerpts.join('\n\n');
     }
     
-    async sendChatMessage(retryWithRawContent = false) {
+    async sendChatMessage(retryWithRawContent = false, chunksToFetch = null) {
         const query = retryWithRawContent ? this.lastQuery : this.chatInput.value.trim();
         if (!query) return;
         
@@ -1088,10 +1095,21 @@ class LogScanner {
         // If retrying, add raw content to shadow context
         if (retryWithRawContent) {
             this.updateTypingIndicator(typingId, 'Fetching additional log content...');
-            // Add current chunk's raw excerpt to shadow context
-            const rawExcerpt = this.getRawExcerptForCurrentChunk();
-            if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
-                this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
+            
+            if (chunksToFetch && chunksToFetch.length > 0) {
+                // Fetch specific chunks requested by AI
+                chunksToFetch.forEach(chunkNum => {
+                    const rawExcerpt = this.getRawExcerptForChunk(chunkNum);
+                    if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
+                        this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
+                    }
+                });
+            } else {
+                // Default: add current chunk's raw excerpt
+                const rawExcerpt = this.getRawExcerptForCurrentChunk();
+                if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
+                    this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
+                }
             }
         }
         
@@ -1115,8 +1133,10 @@ class LogScanner {
             if (data.needs_raw_content && !retryWithRawContent) {
                 // Remove current typing indicator
                 this.removeTypingIndicator(typingId);
+                // Parse which chunks are requested (if any)
+                const chunksRequested = data.chunks_requested || [];
                 // Retry with raw content
-                await this.sendChatMessage(true);
+                await this.sendChatMessage(true, chunksRequested);
                 return;
             }
             

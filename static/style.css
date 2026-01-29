@@ -919,16 +919,26 @@ header h1 {
     cursor: pointer;
     padding: 0.5rem 0;
     user-select: none;
+    border-radius: 8px;
+    margin: -0.5rem;
+    padding: 0.5rem 1rem;
+    transition: background 0.2s ease;
+}
+
+.collapsible-header:hover {
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .collapsible-header h2 {
     margin: 0;
+    pointer-events: none;
 }
 
 .collapse-icon {
     font-size: 1rem;
     color: var(--text-muted);
     transition: transform 0.3s ease;
+    pointer-events: none;
 }
 
 .collapsible-header.collapsed .collapse-icon {

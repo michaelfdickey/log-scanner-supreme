@@ -368,13 +368,20 @@ def chat():
         system_prompt = """You are a helpful log analysis assistant. You have access to context from a log file analysis.
 Your job is to answer questions about the log file, help troubleshoot issues found, and provide insights.
 
-When the user asks for examples of errors, specific log entries, or actual error messages:
+When the user asks for examples of errors, specific log entries, actual error messages, or wants to trace something across chunks:
 1. First look in the "Raw Log Content" section if available - this contains actual log lines
 2. If you find what they're asking for, quote the relevant lines directly
-3. If you cannot find the specific information they need in the provided context, respond with EXACTLY this format:
-   [NEED_RAW_CONTENT] I need to see the actual log lines to answer this question. The current context only contains summaries.
+3. If you cannot find the specific information in the provided context, respond with EXACTLY this format:
+   [NEED_CHUNKS:1,2,3] I need to see the raw log content from chunk(s) X to answer this question.
    
-The [NEED_RAW_CONTENT] tag tells the system to add raw log content to the context and retry.
+   Replace the numbers with the actual chunk numbers you need. For example:
+   - [NEED_CHUNKS:3] - if you need chunk 3
+   - [NEED_CHUNKS:2,3,4] - if you need chunks 2, 3, and 4
+   - [NEED_CHUNKS:1] - if you need chunk 1
+   
+   Look at the "Chunk-by-Chunk Summary" in the Full Analysis Context to determine which chunks likely contain the information needed.
+   
+The system will automatically fetch the raw log content from those chunks and retry your query.
 
 Be specific and cite relevant parts of the context when answering.
 Format your responses clearly with markdown when appropriate.
@@ -408,12 +415,25 @@ When showing log lines, use code blocks for readability."""
         
         assistant_response = response.choices[0].message.content
         
-        # Check if more context is needed
-        needs_raw_content = '[NEED_RAW_CONTENT]' in assistant_response
+        # Check if specific chunks are needed - parse [NEED_CHUNKS:1,2,3] format
+        import re
+        chunks_match = re.search(r'\[NEED_CHUNKS?:([0-9,\s]+)\]', assistant_response)
+        needs_raw_content = chunks_match is not None
+        chunks_requested = []
+        
+        if chunks_match:
+            # Parse the chunk numbers
+            chunk_str = chunks_match.group(1)
+            chunks_requested = [int(c.strip()) for c in chunk_str.split(',') if c.strip().isdigit()]
+            # Clean the response
+            clean_response = re.sub(r'\[NEED_CHUNKS?:[0-9,\s]+\]\s*', '', assistant_response).strip()
+        else:
+            clean_response = assistant_response
         
         return jsonify({
-            'response': assistant_response.replace('[NEED_RAW_CONTENT]', '').strip() if needs_raw_content else assistant_response,
-            'needs_raw_content': needs_raw_content
+            'response': clean_response,
+            'needs_raw_content': needs_raw_content,
+            'chunks_requested': chunks_requested
         })
         
     except Exception as e:

@@ -11,7 +11,55 @@
         <header>
             <h1>🔍 Log Scanner Supreme</h1>
             <p class="tagline">AI-Powered Log Analysis with Context Awareness</p>
+            <button class="settings-btn" id="settings-btn" title="Settings">⚙️</button>
         </header>
+
+        <!-- API Key Warning Banner -->
+        <div id="api-key-warning" class="warning-banner hidden">
+            <span>⚠️ GitHub Personal Access Token not configured.</span>
+            <button class="btn btn-small btn-primary" id="configure-api-btn">Configure Now</button>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>⚙️ Settings</h2>
+                    <button class="modal-close" id="settings-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-group">
+                        <label for="api-key-input">GitHub Personal Access Token</label>
+                        <div class="input-group">
+                            <input type="password" id="api-key-input" placeholder="ghp_... or github_pat_..." autocomplete="off">
+                            <button class="btn btn-small btn-secondary" id="toggle-api-key" title="Show/Hide">👁️</button>
+                        </div>
+                        <p class="input-help">Your GitHub PAT with Copilot access. Stored locally in .env file.</p>
+                        <div class="api-key-status" id="api-key-status"></div>
+                        <button class="btn btn-small btn-secondary" id="test-api-key">Test Connection</button>
+                    </div>
+                    
+                    <div class="settings-group">
+                        <label for="model-select">AI Model</label>
+                        <select id="model-select">
+                            <!-- Options populated by JavaScript -->
+                        </select>
+                        <p class="input-help">GPT-4o Mini is recommended for a balance of speed and quality.</p>
+                    </div>
+                    
+                    <div class="settings-group">
+                        <label for="chunk-size-input">Chunk Size (tokens)</label>
+                        <input type="number" id="chunk-size-input" min="500" max="10000" step="100" value="3000">
+                        <p class="input-help">Larger chunks provide more context but may be slower. Range: 500-10000</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="settings-cancel">Cancel</button>
+                    <button class="btn btn-success" id="settings-save">Save Settings</button>
+                </div>
+            </div>
+        </div>
 
         <!-- Upload Section -->
         <section id="upload-section" class="card">

@@ -9,6 +9,7 @@ class LogScanner {
         this.chunkResults = [];
         this.allIssues = [];
         this.currentChunk = 0;
+        this.settings = {};
         
         this.init();
     }
@@ -46,8 +47,26 @@ class LogScanner {
         this.issuesSection = document.getElementById('issues-section');
         this.issuesList = document.getElementById('issues-list');
         
+        // Settings elements
+        this.settingsBtn = document.getElementById('settings-btn');
+        this.settingsModal = document.getElementById('settings-modal');
+        this.settingsClose = document.getElementById('settings-close');
+        this.settingsCancel = document.getElementById('settings-cancel');
+        this.settingsSave = document.getElementById('settings-save');
+        this.apiKeyInput = document.getElementById('api-key-input');
+        this.toggleApiKey = document.getElementById('toggle-api-key');
+        this.testApiKey = document.getElementById('test-api-key');
+        this.apiKeyStatus = document.getElementById('api-key-status');
+        this.modelSelect = document.getElementById('model-select');
+        this.chunkSizeInput = document.getElementById('chunk-size-input');
+        this.apiKeyWarning = document.getElementById('api-key-warning');
+        this.configureApiBtn = document.getElementById('configure-api-btn');
+        
         // Event Listeners
         this.setupEventListeners();
+        
+        // Load initial settings
+        this.loadSettings();
     }
     
     setupEventListeners() {
@@ -78,13 +97,193 @@ class LogScanner {
         
         // Buttons
         this.analyzeBtn.addEventListener('click', () => this.startAnalysis());
+        
+        // Settings event listeners
+        this.settingsBtn.addEventListener('click', () => this.openSettings());
+        this.settingsClose.addEventListener('click', () => this.closeSettings());
+        this.settingsCancel.addEventListener('click', () => this.closeSettings());
+        this.settingsSave.addEventListener('click', () => this.saveSettings());
+        this.settingsModal.querySelector('.modal-overlay').addEventListener('click', () => this.closeSettings());
+        
+        this.toggleApiKey.addEventListener('click', () => {
+            const type = this.apiKeyInput.type === 'password' ? 'text' : 'password';
+            this.apiKeyInput.type = type;
+            this.toggleApiKey.textContent = type === 'password' ? '👁️' : '🔒';
+        });
+        
+        this.testApiKey.addEventListener('click', () => this.testApiKeyConnection());
+        
+        this.configureApiBtn.addEventListener('click', () => this.openSettings());
         this.clearBtn.addEventListener('click', () => this.clearFile());
         
         // Filter buttons
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.filterIssues(e.target.dataset.filter));
         });
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !this.settingsModal.classList.contains('hidden')) {
+                this.closeSettings();
+            }
+        });
     }
+    
+    // ==================== Settings Methods ====================
+    
+    async loadSettings() {
+        try {
+            const response = await fetch('/api/settings');
+            const data = await response.json();
+            
+            this.settings = data;
+            
+            // Populate model select
+            this.modelSelect.innerHTML = '';
+            if (data.available_models) {
+                data.available_models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.name;
+                    option.selected = model.id === data.model;
+                    this.modelSelect.appendChild(option);
+                });
+            }
+            
+            // Set chunk size
+            this.chunkSizeInput.value = data.chunk_size || 3000;
+            
+            // Show/hide API key warning
+            if (!data.api_key_configured) {
+                this.apiKeyWarning.classList.remove('hidden');
+            } else {
+                this.apiKeyWarning.classList.add('hidden');
+            }
+            
+            // Clear API key input (for security)
+            this.apiKeyInput.value = '';
+            this.apiKeyInput.placeholder = data.api_key_masked || 'sk-...';
+            
+        } catch (error) {
+            console.error('Failed to load settings:', error);
+        }
+    }
+    
+    openSettings() {
+        this.settingsModal.classList.remove('hidden');
+        this.apiKeyStatus.textContent = '';
+        this.apiKeyStatus.className = 'api-key-status';
+        document.body.style.overflow = 'hidden';
+    }
+    
+    closeSettings() {
+        this.settingsModal.classList.add('hidden');
+        document.body.style.overflow = '';
+        this.apiKeyInput.value = '';
+        this.apiKeyInput.type = 'password';
+        this.toggleApiKey.textContent = '👁️';
+    }
+    
+    async saveSettings() {
+        const apiKey = this.apiKeyInput.value.trim();
+        const model = this.modelSelect.value;
+        const chunkSize = parseInt(this.chunkSizeInput.value);
+        
+        // Validate chunk size
+        if (chunkSize < 500 || chunkSize > 10000) {
+            alert('Chunk size must be between 500 and 10000');
+            return;
+        }
+        
+        const payload = {
+            model: model,
+            chunk_size: chunkSize
+        };
+        
+        // Only include API key if a new one was entered
+        if (apiKey) {
+            payload.api_key = apiKey;
+        }
+        
+        try {
+            this.settingsSave.disabled = true;
+            this.settingsSave.textContent = 'Saving...';
+            
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                alert('Error saving settings: ' + data.error);
+                return;
+            }
+            
+            // Update local settings
+            this.settings = { ...this.settings, ...data };
+            
+            // Update warning banner
+            if (data.api_key_configured) {
+                this.apiKeyWarning.classList.add('hidden');
+            }
+            
+            // Update placeholder
+            if (data.api_key_masked) {
+                this.apiKeyInput.placeholder = data.api_key_masked;
+            }
+            
+            this.closeSettings();
+            
+        } catch (error) {
+            alert('Failed to save settings: ' + error.message);
+        } finally {
+            this.settingsSave.disabled = false;
+            this.settingsSave.textContent = 'Save Settings';
+        }
+    }
+    
+    async testApiKeyConnection() {
+        const apiKey = this.apiKeyInput.value.trim();
+        
+        this.testApiKey.disabled = true;
+        this.testApiKey.textContent = 'Testing...';
+        this.apiKeyStatus.textContent = '';
+        this.apiKeyStatus.className = 'api-key-status';
+        
+        try {
+            const response = await fetch('/api/settings/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ api_key: apiKey || null })
+            });
+            
+            const data = await response.json();
+            
+            if (data.valid) {
+                this.apiKeyStatus.textContent = '✅ ' + data.message;
+                this.apiKeyStatus.className = 'api-key-status success';
+            } else {
+                this.apiKeyStatus.textContent = '❌ ' + data.error;
+                this.apiKeyStatus.className = 'api-key-status error';
+            }
+            
+        } catch (error) {
+            this.apiKeyStatus.textContent = '❌ Connection failed: ' + error.message;
+            this.apiKeyStatus.className = 'api-key-status error';
+        } finally {
+            this.testApiKey.disabled = false;
+            this.testApiKey.textContent = 'Test API Key';
+        }
+    }
+    
+    // ==================== File Handling Methods ====================
     
     handleFileSelect(e) {
         if (e.target.files.length) {
@@ -169,6 +368,13 @@ class LogScanner {
     async startAnalysis() {
         if (!this.filePath) {
             alert('No file uploaded');
+            return;
+        }
+        
+        // Check if API key is configured
+        if (!this.settings.api_key_configured) {
+            alert('Please configure your GitHub Personal Access Token in Settings before analyzing.');
+            this.openSettings();
             return;
         }
         

@@ -7,25 +7,99 @@ import json
 import uuid
 from flask import Flask, render_template, request, jsonify, session
 from werkzeug.utils import secure_filename
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key, dotenv_values
 from log_analyzer import LogAnalyzer
 
+# Get the directory where this script is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_FILE = os.path.join(BASE_DIR, '.env')
+SETTINGS_FILE = os.path.join(BASE_DIR, 'copilot-api', 'settings.json')
+
 # Load environment variables
-load_dotenv()
+load_dotenv(ENV_FILE)
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # Configuration
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'log', 'txt', 'json', 'xml', 'csv', 'out', 'err'}
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max file size
+
+# Available models for Copilot API
+AVAILABLE_MODELS = [
+    {'id': 'gpt-4o', 'name': 'GPT-4o (Most Capable)'},
+    {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini (Fast & Affordable)'},
+    {'id': 'gpt-4', 'name': 'GPT-4'},
+    {'id': 'gpt-3.5-turbo', 'name': 'GPT-3.5 Turbo (Budget)'},
+]
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 # Ensure upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def ensure_settings_file():
+    """Ensure settings.json file exists."""
+    settings_dir = os.path.dirname(SETTINGS_FILE)
+    os.makedirs(settings_dir, exist_ok=True)
+    
+    if not os.path.exists(SETTINGS_FILE):
+        default_settings = {
+            'github_pat': '',
+            'model': 'gpt-4o-mini',
+            'chunk_size': 3000
+        }
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(default_settings, f, indent=4)
+
+
+def get_settings():
+    """Get current settings from settings.json file."""
+    ensure_settings_file()
+    
+    try:
+        with open(SETTINGS_FILE, 'r') as f:
+            settings = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        settings = {}
+    
+    api_key = settings.get('github_pat', '')
+    return {
+        'api_key': api_key,
+        'model': settings.get('model', 'gpt-4o-mini'),
+        'chunk_size': int(settings.get('chunk_size', 3000)),
+        'api_key_configured': bool(api_key.strip() and 
+                                   api_key not in ['your-openai-api-key-here', 'your-github-pat-here'])
+    }
+
+
+def save_settings(api_key=None, model=None, chunk_size=None):
+    """Save settings to settings.json file."""
+    ensure_settings_file()
+    
+    # Load existing settings
+    try:
+        with open(SETTINGS_FILE, 'r') as f:
+            settings = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        settings = {}
+    
+    # Update settings
+    if api_key is not None:
+        settings['github_pat'] = api_key
+    
+    if model is not None:
+        settings['model'] = model
+    
+    if chunk_size is not None:
+        settings['chunk_size'] = chunk_size
+    
+    # Save settings
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f, indent=4)
 
 
 def allowed_file(filename):
@@ -38,6 +112,86 @@ def allowed_file(filename):
 def index():
     """Render the main page."""
     return render_template('index.html')
+
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings_api():
+    """Get current settings (API key is masked)."""
+    settings = get_settings()
+    # Mask the API key for security
+    if settings['api_key']:
+        masked = settings['api_key'][:8] + '...' + settings['api_key'][-4:] if len(settings['api_key']) > 12 else '****'
+    else:
+        masked = ''
+    
+    return jsonify({
+        'api_key_masked': masked,
+        'api_key_configured': settings['api_key_configured'],
+        'model': settings['model'],
+        'chunk_size': settings['chunk_size'],
+        'available_models': AVAILABLE_MODELS
+    })
+
+
+@app.route('/api/settings', methods=['POST'])
+def update_settings_api():
+    """Update settings."""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    try:
+        # Update only provided fields
+        if 'api_key' in data and data['api_key']:
+            save_settings(api_key=data['api_key'].strip())
+        
+        if 'model' in data:
+            save_settings(model=data['model'])
+        
+        if 'chunk_size' in data:
+            chunk_size = int(data['chunk_size'])
+            if chunk_size < 500 or chunk_size > 10000:
+                return jsonify({'error': 'Chunk size must be between 500 and 10000'}), 400
+            save_settings(chunk_size=chunk_size)
+        
+        # Return updated settings
+        settings = get_settings()
+        if settings['api_key']:
+            masked = settings['api_key'][:8] + '...' + settings['api_key'][-4:] if len(settings['api_key']) > 12 else '****'
+        else:
+            masked = ''
+        
+        return jsonify({
+            'success': True,
+            'api_key_masked': masked,
+            'api_key_configured': settings['api_key_configured'],
+            'model': settings['model'],
+            'chunk_size': settings['chunk_size']
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/test', methods=['POST'])
+def test_api_key():
+    """Test if the GitHub PAT is valid for Copilot API."""
+    from copilot_client import test_api_key as copilot_test
+    
+    data = request.get_json()
+    api_key = data.get('api_key') if data else None
+    
+    # Use provided key or current saved key
+    if not api_key:
+        settings = get_settings()
+        api_key = settings['api_key']
+    
+    if not api_key:
+        return jsonify({'valid': False, 'error': 'No GitHub PAT provided'})
+    
+    result = copilot_test(api_key)
+    return jsonify(result)
 
 
 @app.route('/upload', methods=['POST'])
@@ -99,14 +253,15 @@ def analyze_file():
         return jsonify({'error': 'File not found'}), 404
     
     try:
-        # Initialize analyzer
-        api_key = os.getenv('OPENAI_API_KEY')
-        model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
-        chunk_size = int(os.getenv('CHUNK_SIZE', '3000'))
+        # Initialize analyzer with Copilot API
+        settings = get_settings()
+        api_key = settings['api_key']
+        model = settings['model']
+        chunk_size = settings['chunk_size']
         
-        if not api_key or api_key == 'your-openai-api-key-here':
+        if not api_key or not settings['api_key_configured']:
             return jsonify({
-                'error': 'OpenAI API key not configured. Please add your API key to the .env file.'
+                'error': 'GitHub PAT not configured. Please add your token in Settings.'
             }), 400
         
         analyzer = LogAnalyzer(api_key=api_key, model=model, chunk_size=chunk_size)
@@ -147,13 +302,14 @@ def analyze_file_stream():
     
     def generate():
         try:
-            # Initialize analyzer
-            api_key = os.getenv('OPENAI_API_KEY')
-            model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
-            chunk_size = int(os.getenv('CHUNK_SIZE', '3000'))
+            # Initialize analyzer with Copilot API
+            settings = get_settings()
+            api_key = settings['api_key']
+            model = settings['model']
+            chunk_size = settings['chunk_size']
             
-            if not api_key or api_key == 'your-openai-api-key-here':
-                yield f"data: {json.dumps({'error': 'OpenAI API key not configured'})}\n\n"
+            if not api_key or not settings['api_key_configured']:
+                yield f"data: {json.dumps({'error': 'GitHub PAT not configured'})}\n\n"
                 return
             
             analyzer = LogAnalyzer(api_key=api_key, model=model, chunk_size=chunk_size)
@@ -188,9 +344,10 @@ def analyze_file_stream():
 if __name__ == '__main__':
     print("\n" + "="*60)
     print("  Log Scanner Supreme")
+    print("  Powered by GitHub Copilot API")
     print("="*60)
     print("\n  Starting server at: http://localhost:5000")
-    print("\n  Make sure you have set your OPENAI_API_KEY in .env file")
+    print("\n  Configure your GitHub PAT in Settings (click ⚙️)")
     print("="*60 + "\n")
     
     app.run(debug=True, host='0.0.0.0', port=5000)

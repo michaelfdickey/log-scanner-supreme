@@ -11,7 +11,7 @@ This module handles:
 import re
 import json
 from typing import Generator
-from openai import OpenAI
+from copilot_client import CopilotClient
 import tiktoken
 
 
@@ -49,11 +49,11 @@ class LogAnalyzer:
         Initialize the LogAnalyzer.
         
         Args:
-            api_key: OpenAI API key
+            api_key: GitHub Personal Access Token with Copilot access
             model: Model to use for analysis
             chunk_size: Target size of each chunk in tokens
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = CopilotClient(api_key=api_key)
         self.model = model
         self.chunk_size = chunk_size
         self.encoding = tiktoken.encoding_for_model('gpt-4o')

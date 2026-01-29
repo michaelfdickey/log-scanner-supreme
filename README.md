@@ -2,6 +2,8 @@
 
 An AI-powered log file analyzer with a web-based interface. Upload log files, and get intelligent analysis with context-aware issue tracking across the entire file.
 
+**Powered by GitHub Copilot API** 🤖
+
 ## Features
 
 - **📁 Easy Upload**: Drag-and-drop or browse for log files (.log, .txt, .json, .xml, .csv, .out, .err)
@@ -14,7 +16,8 @@ An AI-powered log file analyzer with a web-based interface. Upload log files, an
 ## Prerequisites
 
 - Python 3.8+
-- OpenAI API key
+- GitHub account with Copilot access
+- GitHub Personal Access Token (PAT) with Copilot permissions
 
 ## Installation
 
@@ -34,41 +37,61 @@ An AI-powered log file analyzer with a web-based interface. Upload log files, an
    pip install -r requirements.txt
    ```
 
-4. **Configure your API key**
+4. **Configure your GitHub PAT**
+   
+   Option A: Use the Settings UI (recommended)
+   - Start the app and click the ⚙️ Settings button
+   - Enter your GitHub PAT and click Save
+   
+   Option B: Use environment file
    ```bash
    cp .env.example .env
    ```
-   
-   Edit `.env` and add your OpenAI API key:
+   Edit `.env` and add your GitHub PAT:
    ```
-   OPENAI_API_KEY=sk-your-api-key-here
+   GITHUB_PAT=ghp_your-token-here
    ```
+
+## Getting a GitHub Personal Access Token
+
+1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+2. Generate a new token (classic or fine-grained)
+3. Ensure your GitHub account has Copilot access
+4. Copy the token (starts with `ghp_` or `github_pat_`)
 
 ## Usage
 
 1. **Start the server**
    ```bash
+   python launcher.py   # Recommended: handles venv and cleanup
+   # or
    python app.py
    ```
 
 2. **Open your browser**
    Navigate to [http://localhost:5000](http://localhost:5000)
 
-3. **Upload a log file**
+3. **Configure** (if not already done)
+   - Click the ⚙️ Settings button
+   - Enter your GitHub PAT
+   - Click "Test Connection" to verify
+   - Save settings
+
+4. **Upload a log file**
    - Drag and drop a log file onto the upload area, or
    - Click "Browse Files" to select a file
 
-4. **Analyze**
+5. **Analyze**
    Click "Analyze Log" to start the AI-powered analysis
 
 ## Configuration Options
 
-Edit the `.env` file to customize:
+Configure via Settings UI or edit `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENAI_API_KEY` | (required) | Your OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4o-mini` | The model to use for analysis |
+| `GITHUB_PAT` | (required) | Your GitHub Personal Access Token |
+| `COPILOT_MODEL` | `gpt-4o-mini` | The model to use for analysis |
 | `CHUNK_SIZE` | `3000` | Target chunk size in tokens |
 
 ## How It Works
@@ -113,17 +136,22 @@ The analyzer works with various log formats:
 
 - Log files are uploaded to a local `uploads/` directory
 - Files are automatically deleted after analysis
-- Your API key is stored locally in the `.env` file
-- No data is sent anywhere except to the OpenAI API for analysis
+- Your GitHub PAT is stored locally in the `.env` file
+- Data is sent to the GitHub Copilot API for analysis
 
 ## Troubleshooting
 
-**"OpenAI API key not configured"**
-- Make sure you've created a `.env` file with your API key
-- Check that the key is valid and has available credits
+**"GitHub PAT not configured"**
+- Click the ⚙️ Settings button and enter your GitHub PAT
+- Make sure your GitHub account has Copilot access
+- Test the connection using the "Test Connection" button
+
+**"Unauthorized" error**
+- Your PAT may have expired - generate a new one
+- Ensure your GitHub account has active Copilot subscription
 
 **Large file takes too long**
-- Try reducing `CHUNK_SIZE` in `.env` for faster (but less detailed) analysis
+- Try reducing `CHUNK_SIZE` in Settings for faster (but less detailed) analysis
 - Consider splitting very large logs into smaller files
 
 **Analysis seems incomplete**

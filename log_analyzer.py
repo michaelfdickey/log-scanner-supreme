@@ -349,6 +349,20 @@ Return ONLY the JSON object, no markdown code fences."""
         for r in chunk_results:
             all_patterns.extend(r.get('patterns_detected', []))
         
+        # Truncate issues list if too long to prevent token overflow
+        # Prioritize errors over warnings over info
+        truncated_issues = all_issues
+        if len(all_issues) > 50:
+            errors = [i for i in all_issues if i.get('severity') == 'error']
+            warnings = [i for i in all_issues if i.get('severity') == 'warning']
+            infos = [i for i in all_issues if i.get('severity') == 'info']
+            
+            # Keep up to 30 errors, 15 warnings, 5 info
+            truncated_issues = errors[:30] + warnings[:15] + infos[:5]
+            truncated_note = f"\n\n(Note: Showing {len(truncated_issues)} of {len(all_issues)} total issues. Prioritized by severity.)"
+        else:
+            truncated_note = ""
+        
         system_prompt = """You are an expert log analyst providing a final comprehensive report.
 
 Return a JSON object with this structure:
@@ -394,11 +408,11 @@ Return ONLY the JSON object, no markdown code fences."""
 ## Chunk-by-Chunk Summaries:
 {chunk_summaries}
 
-## All Identified Issues:
-{json.dumps(all_issues, indent=2)}
+## All Identified Issues ({len(all_issues)} total):{truncated_note}
+{json.dumps(truncated_issues, indent=2)}
 
 ## Detected Patterns Across All Chunks:
-{json.dumps(list(set(all_patterns)), indent=2)}
+{json.dumps(list(set(all_patterns))[:20], indent=2)}
 
 Please synthesize all this information into a final comprehensive report with actionable recommendations. Return ONLY the JSON object."""
 
@@ -415,11 +429,43 @@ Please synthesize all this information into a final comprehensive report with ac
             return extract_json(response.choices[0].message.content)
             
         except Exception as e:
+            # Generate a basic fallback summary from collected data
+            error_count = len([i for i in all_issues if i.get('severity') == 'error'])
+            warning_count = len([i for i in all_issues if i.get('severity') == 'warning'])
+            
+            # Determine health based on counts
+            if error_count > 10:
+                health = 'critical'
+            elif error_count > 0:
+                health = 'degraded'
+            else:
+                health = 'healthy' if warning_count < 5 else 'degraded'
+            
             return {
-                'executive_summary': f'Failed to generate final summary: {str(e)}',
-                'overall_health': 'unknown',
-                'key_findings': [],
-                'recommendations': []
+                'executive_summary': f'Analysis complete. Found {error_count} errors and {warning_count} warnings across {len(chunk_results)} chunks. (Detailed summary generation failed: {str(e)[:100]})',
+                'overall_health': health,
+                'key_findings': [
+                    {
+                        'title': issue.get('type', 'Issue'),
+                        'severity': 'high' if issue.get('severity') == 'error' else 'medium',
+                        'description': issue.get('description', 'No description'),
+                        'affected_components': [],
+                        'evidence': f"Found in chunk analysis"
+                    }
+                    for issue in all_issues[:5] if issue.get('severity') == 'error'
+                ],
+                'recommendations': [
+                    {
+                        'priority': 'immediate',
+                        'action': 'Review the error details in the chunk analysis above',
+                        'rationale': 'Manual review recommended as automated summary generation encountered an issue'
+                    }
+                ],
+                'statistics': {
+                    'total_errors': error_count,
+                    'total_warnings': warning_count,
+                    'most_frequent_issue': 'See chunk analysis for details'
+                }
             }
     
     def analyze(self, content: str) -> dict:
@@ -549,9 +595,19 @@ Please synthesize all this information into a final comprehensive report with ac
                 'data': result
             }
         
-        # Generate final summary
+        # Generate final summary with error handling
         yield {'type': 'status', 'message': 'Generating final summary and recommendations...'}
-        final_summary = self._generate_final_summary(chunk_results, all_issues)
+        
+        try:
+            final_summary = self._generate_final_summary(chunk_results, all_issues)
+        except Exception as e:
+            final_summary = {
+                'executive_summary': f'Final summary generation failed: {str(e)}',
+                'overall_health': 'unknown',
+                'key_findings': [],
+                'recommendations': [],
+                'error': str(e)
+            }
         
         yield {
             'type': 'final_summary',

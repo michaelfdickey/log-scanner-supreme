@@ -1,4 +1,8 @@
-- smart chat
+- [X] smart chat
+
+- prompts for specific log file types and drop down of log file types
+
+
 
 - narrative description of most pressing issue.  creates a story that describes the workflow and the issue encournted but also provides specific log excertps and/or reference lines using the per chunk context summaries as well as the over all summary to construct.
 

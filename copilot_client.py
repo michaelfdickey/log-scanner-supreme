@@ -128,7 +128,7 @@ class CopilotClient:
                         self.client.API_ENDPOINT,
                         headers=headers,
                         json=data,
-                        timeout=60
+                        timeout=120  # Increased timeout for longer requests
                     )
                     
                     if response.status_code == 200:

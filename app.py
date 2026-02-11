@@ -172,8 +172,8 @@ def update_settings_api():
         
         if 'chunk_size' in data:
             chunk_size = int(data['chunk_size'])
-            if chunk_size < 500 or chunk_size > 10000:
-                return jsonify({'error': 'Chunk size must be between 500 and 10000'}), 400
+            if chunk_size < 500 or chunk_size > 100000:
+                return jsonify({'error': 'Chunk size must be between 500 and 100,000'}), 400
             save_settings(chunk_size=chunk_size)
         
         # Return updated settings

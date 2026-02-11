@@ -207,8 +207,8 @@ class LogScanner {
         const chunkSize = parseInt(this.chunkSizeInput.value);
         
         // Validate chunk size
-        if (chunkSize < 500 || chunkSize > 10000) {
-            alert('Chunk size must be between 500 and 10000');
+        if (chunkSize < 500 || chunkSize > 100000) {
+            alert('Chunk size must be between 500 and 100,000');
             return;
         }
         

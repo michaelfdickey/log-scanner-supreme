@@ -1246,6 +1246,204 @@ header h1 {
     }
 }
 
+/* Chunk Selection */
+.chunk-selection-hint {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.chunk-selection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    align-items: center;
+}
+
+.chunk-selection-stats {
+    margin-bottom: 1rem;
+}
+
+.chunk-selection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+}
+
+.chunk-select-card {
+    background: rgba(0, 0, 0, 0.2);
+    border: 2px solid var(--card-border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    overflow: hidden;
+}
+
+.chunk-select-card:hover {
+    border-color: var(--primary-color);
+    background: rgba(79, 70, 229, 0.1);
+}
+
+/* Chunk card states */
+.chunk-select-card.analyzing {
+    border-color: var(--primary-color);
+    background: rgba(79, 70, 229, 0.1);
+    animation: pulse 1.5s infinite;
+}
+
+.chunk-select-card.scanned-clean {
+    border-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.chunk-select-card.scanned-warnings {
+    border-color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.chunk-select-card.scanned-errors {
+    border-color: var(--error-color);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.chunk-select-card.expanded {
+    grid-column: 1 / -1;
+}
+
+.chunk-select-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+    transition: background 0.2s ease;
+}
+
+.chunk-select-header:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.chunk-status-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.analyzing-spinner {
+    animation: pulse 1s infinite;
+}
+
+.chunk-select-meta-inline {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.chunk-issue-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    background: var(--error-color);
+    color: white;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.chunk-clean-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    background: var(--success-color);
+    color: white;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.chunk-expand-icon {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
+    flex-shrink: 0;
+}
+
+/* Expanded content area */
+.chunk-expand-content {
+    border-top: 1px solid var(--card-border);
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.chunk-expand-content.hidden {
+    display: none !important;
+}
+
+/* Detail states */
+.chunk-detail-loading {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--text-secondary);
+}
+
+.chunk-detail-loading .analyzing-indicator {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 0.75rem;
+}
+
+.chunk-detail-loading p {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.chunk-detail-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.chunk-detail-preview .chunk-analyze-btn {
+    align-self: flex-start;
+}
+
+.chunk-detail-results {
+    font-size: 0.9rem;
+}
+
+.chunk-detail-results .chunk-summary {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--card-border);
+}
+
+.chunk-detail-results .chunk-summary h4 {
+    font-size: 0.95rem;
+    margin-bottom: 0.4rem;
+}
+
+.chunk-detail-results .issue-card {
+    font-size: 0.85rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.chunk-select-preview {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    padding: 0.5rem;
+    max-height: 80px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.3;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
     width: 8px;

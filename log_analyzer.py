@@ -521,13 +521,15 @@ Please synthesize all this information into a final comprehensive report with ac
             'final_summary': final_summary
         }
     
-    def analyze_streaming(self, content: str, issue_description: str = '') -> Generator[dict, None, None]:
+    def analyze_streaming(self, content: str, issue_description: str = '', selected_chunks: list = None) -> Generator[dict, None, None]:
         """
         Perform analysis with streaming updates.
         
         Args:
             content: The log file content to analyze
             issue_description: Optional description of the issue to focus on
+            selected_chunks: Optional list of 1-indexed chunk numbers to analyze.
+                           If None, all chunks are analyzed.
         
         Yields updates as each chunk is processed.
         """
@@ -550,30 +552,42 @@ Please synthesize all this information into a final comprehensive report with ac
         yield {'type': 'status', 'message': 'Splitting log into analyzable chunks...'}
         chunks = self._chunk_log(content)
         
+        # Determine which chunks to analyze
+        if selected_chunks:
+            # Filter to only selected chunk indices (1-indexed)
+            selected_set = set(selected_chunks)
+            chunks_to_analyze = [(i+1, chunk) for i, chunk in enumerate(chunks) if (i+1) in selected_set]
+        else:
+            chunks_to_analyze = [(i+1, chunk) for i, chunk in enumerate(chunks)]
+        
+        total_to_analyze = len(chunks_to_analyze)
+        
         yield {
             'type': 'chunking',
             'data': {
                 'total_chunks': len(chunks),
+                'analyzed_chunks': total_to_analyze,
+                'selected_chunks': selected_chunks,
                 'chunks_info': [
-                    {'num': i+1, 'lines': f"{c['start_line']}-{c['end_line']}", 'tokens': c['tokens']}
-                    for i, c in enumerate(chunks)
+                    {'num': chunk_num, 'lines': f"{c['start_line']}-{c['end_line']}", 'tokens': c['tokens']}
+                    for chunk_num, c in chunks_to_analyze
                 ]
             }
         }
         
-        # Analyze each chunk
+        # Analyze selected chunks
         chunk_results = []
         all_issues = []
         running_summary = ""
         
-        for i, chunk in enumerate(chunks, 1):
+        for idx, (chunk_num, chunk) in enumerate(chunks_to_analyze, 1):
             yield {
                 'type': 'status',
-                'message': f'Analyzing chunk {i} of {len(chunks)} (lines {chunk["start_line"]}-{chunk["end_line"]})...'
+                'message': f'Analyzing chunk {chunk_num} ({idx} of {total_to_analyze}) (lines {chunk["start_line"]}-{chunk["end_line"]})...'
             }
             
             result = self._analyze_chunk(
-                chunk, i, len(chunks),
+                chunk, chunk_num, len(chunks),
                 running_summary, all_issues
             )
             
@@ -586,7 +600,7 @@ Please synthesize all this information into a final comprehensive report with ac
             if result.get('issues'):
                 all_issues.extend(result['issues'])
             
-            running_summary += f"\nChunk {i}: {result.get('chunk_summary', 'No summary')}"
+            running_summary += f"\nChunk {chunk_num}: {result.get('chunk_summary', 'No summary')}"
             if result.get('running_issues_update'):
                 running_summary += f" | Issues: {result['running_issues_update']}"
             
@@ -618,7 +632,7 @@ Please synthesize all this information into a final comprehensive report with ac
         yield {
             'type': 'complete',
             'data': {
-                'chunks_analyzed': len(chunks),
+                'chunks_analyzed': total_to_analyze,
                 'total_issues': len(all_issues)
             }
         }

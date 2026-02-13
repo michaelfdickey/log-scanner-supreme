@@ -306,6 +306,116 @@ def analyze_file():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/preview-chunks', methods=['POST'])
+def preview_chunks():
+    """Preview chunks and preprocessing results without running AI analysis."""
+    data = request.get_json()
+    
+    if not data or 'filepath' not in data:
+        return jsonify({'error': 'No file path provided'}), 400
+    
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data['filepath'])
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    
+    try:
+        settings = get_settings()
+        chunk_size = settings['chunk_size']
+        
+        analyzer = LogAnalyzer(api_key='preview', model='preview', chunk_size=chunk_size)
+        
+        with open(filepath, 'r', errors='replace') as f:
+            content = f.read()
+        
+        # Pre-process
+        preprocessing = analyzer._preprocess_log(content)
+        
+        # Chunk the content
+        chunks = analyzer._chunk_log(content)
+        
+        chunks_info = []
+        for i, c in enumerate(chunks):
+            chunks_info.append({
+                'num': i + 1,
+                'start_line': c['start_line'],
+                'end_line': c['end_line'],
+                'lines': f"{c['start_line']}-{c['end_line']}",
+                'tokens': c['tokens'],
+                'preview': c['content'][:200] + ('...' if len(c['content']) > 200 else '')
+            })
+        
+        return jsonify({
+            'preprocessing': {
+                'error_count': len(preprocessing['errors']),
+                'warning_count': len(preprocessing['warnings']),
+                'sample_errors': preprocessing['errors'][:10],
+                'sample_warnings': preprocessing['warnings'][:10]
+            },
+            'total_chunks': len(chunks),
+            'chunks_info': chunks_info
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/analyze-chunk', methods=['POST'])
+def analyze_single_chunk():
+    """Analyze a single chunk by number."""
+    data = request.get_json()
+    
+    if not data or 'filepath' not in data or 'chunk_num' not in data:
+        return jsonify({'error': 'filepath and chunk_num required'}), 400
+    
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data['filepath'])
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    
+    try:
+        settings = get_settings()
+        api_key = settings['api_key']
+        model = settings['model']
+        chunk_size = settings['chunk_size']
+        
+        if not api_key or not settings['api_key_configured']:
+            return jsonify({'error': 'GitHub PAT not configured'}), 400
+        
+        analyzer = LogAnalyzer(api_key=api_key, model=model, chunk_size=chunk_size)
+        
+        # Set issue description if provided
+        analyzer.issue_description = data.get('issue_description', '')
+        
+        with open(filepath, 'r', errors='replace') as f:
+            content = f.read()
+        
+        chunks = analyzer._chunk_log(content)
+        chunk_num = int(data['chunk_num'])
+        
+        if chunk_num < 1 or chunk_num > len(chunks):
+            return jsonify({'error': f'Invalid chunk number. Must be 1-{len(chunks)}'}), 400
+        
+        chunk = chunks[chunk_num - 1]
+        
+        # Get running context from previously analyzed chunks if provided
+        running_summary = data.get('running_summary', '')
+        previous_issues = data.get('previous_issues', [])
+        
+        result = analyzer._analyze_chunk(
+            chunk, chunk_num, len(chunks),
+            running_summary, previous_issues
+        )
+        
+        # Add raw excerpt for chat context
+        result['raw_excerpt'] = analyzer._extract_raw_excerpt(chunk['content'])
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/analyze-stream', methods=['POST'])
 def analyze_file_stream():
     """Analyze the uploaded log file with streaming updates."""
@@ -338,12 +448,15 @@ def analyze_file_stream():
             # Get issue description if provided
             issue_description = data.get('issue_description', '')
             
+            # Get selected chunks if provided (1-indexed list)
+            selected_chunks = data.get('selected_chunks', None)
+            
             # Read file content
             with open(filepath, 'r', errors='replace') as f:
                 content = f.read()
             
             # Stream analysis results
-            for update in analyzer.analyze_streaming(content, issue_description=issue_description):
+            for update in analyzer.analyze_streaming(content, issue_description=issue_description, selected_chunks=selected_chunks):
                 yield f"data: {json.dumps(update)}\n\n"
             
             # Clean up

@@ -95,6 +95,29 @@
             </div>
         </section>
 
+        <!-- Chunk Selection Section -->
+        <section id="chunk-selection-section" class="card hidden">
+            <h2>📦 Log Chunks</h2>
+            <div class="chunk-selection-stats">
+                <div class="stats-grid">
+                    <div class="stat-card error">
+                        <span class="stat-number" id="preview-error-count">0</span>
+                        <span class="stat-label">Potential Errors</span>
+                    </div>
+                    <div class="stat-card warning">
+                        <span class="stat-number" id="preview-warning-count">0</span>
+                        <span class="stat-label">Potential Warnings</span>
+                    </div>
+                </div>
+            </div>
+            <p class="chunk-selection-hint">Click a chunk to view details. Analyzed chunks show results; unanalyzed chunks can be scanned individually.</p>
+            <div class="chunk-selection-actions">
+                <button class="btn btn-success" id="analyze-all-btn">🚀 Analyze All Chunks</button>
+                <button class="btn btn-primary" id="generate-summary-btn" disabled>📝 Generate Summary</button>
+            </div>
+            <div class="chunk-selection-grid" id="chunk-selection-grid"></div>
+        </section>
+
         <!-- Progress Section -->
         <section id="progress-section" class="card hidden">
             <h2>⏳ Analysis Progress</h2>
@@ -107,7 +130,7 @@
             <div id="chunk-progress" class="chunk-progress"></div>
         </section>
 
-        <!-- Preprocessing Results -->
+        <!-- Preprocessing Results (used during Analyze All streaming) -->
         <section id="preprocessing-section" class="card hidden">
             <h2>🔎 Quick Scan Results</h2>
             <div class="stats-grid">
@@ -121,13 +144,6 @@
                 </div>
             </div>
             <div id="sample-issues" class="sample-issues"></div>
-        </section>
-
-        <!-- Chunk Analysis Results -->
-        <section id="chunks-section" class="card hidden">
-            <h2>📊 Chunk-by-Chunk Analysis</h2>
-            <div class="chunk-tabs" id="chunk-tabs"></div>
-            <div id="chunk-content" class="chunk-content"></div>
         </section>
 
         <!-- Final Summary -->

@@ -6,11 +6,15 @@ class LogScanner {
     constructor() {
         this.uploadedFile = null;
         this.filePath = null;
-        this.chunkResults = [];
+        this.chunkResults = {};       // keyed by chunk number (1-indexed)
+        this.chunkMeta = [];          // metadata from preview
         this.allIssues = [];
         this.currentChunk = 0;
         this.settings = {};
         this.finalSummary = null;
+        this.totalChunksAvailable = 0;
+        this.expandedChunk = null;    // currently expanded chunk number
+        this.analyzingChunks = new Set(); // chunks currently being analyzed
         
         this.init();
     }
@@ -36,10 +40,6 @@ class LogScanner {
         this.warningCount = document.getElementById('warning-count');
         this.sampleIssues = document.getElementById('sample-issues');
         
-        this.chunksSection = document.getElementById('chunks-section');
-        this.chunkTabs = document.getElementById('chunk-tabs');
-        this.chunkContent = document.getElementById('chunk-content');
-        
         this.summarySection = document.getElementById('summary-section');
         this.executiveSummary = document.getElementById('executive-summary');
         this.keyFindings = document.getElementById('key-findings');
@@ -48,6 +48,12 @@ class LogScanner {
         
         this.issuesSection = document.getElementById('issues-section');
         this.issuesList = document.getElementById('issues-list');
+        
+        // Chunk selection elements
+        this.chunkSelectionSection = document.getElementById('chunk-selection-section');
+        this.chunkSelectionGrid = document.getElementById('chunk-selection-grid');
+        this.analyzeAllBtn = document.getElementById('analyze-all-btn');
+        this.generateSummaryBtn = document.getElementById('generate-summary-btn');
         
         // Settings elements
         this.settingsBtn = document.getElementById('settings-btn');
@@ -97,8 +103,6 @@ class LogScanner {
         });
         
         this.uploadArea.addEventListener('click', (e) => {
-            // Don't trigger if clicking on the label/button (it handles the input itself)
-            // or if clicking on the input directly
             if (e.target.tagName === 'LABEL' || 
                 e.target.tagName === 'INPUT' || 
                 e.target.closest('label')) {
@@ -107,13 +111,14 @@ class LogScanner {
             this.fileInput.click();
         });
         
-        // Reset file input value to allow re-selecting the same file
         this.fileInput.addEventListener('click', () => {
             this.fileInput.value = '';
         });
         
         // Buttons
-        this.analyzeBtn.addEventListener('click', () => this.startAnalysis());
+        this.analyzeBtn.addEventListener('click', () => this.previewChunks());
+        this.analyzeAllBtn.addEventListener('click', () => this.startAnalysisAll());
+        this.generateSummaryBtn.addEventListener('click', () => this.generateSummary());
         
         // Settings event listeners
         this.settingsBtn.addEventListener('click', () => this.openSettings());
@@ -367,9 +372,13 @@ class LogScanner {
     clearFile() {
         this.uploadedFile = null;
         this.filePath = null;
-        this.chunkResults = [];
+        this.chunkResults = {};
+        this.chunkMeta = [];
         this.allIssues = [];
         this.finalSummary = null;
+        this.totalChunksAvailable = 0;
+        this.expandedChunk = null;
+        this.analyzingChunks = new Set();
         
         this.uploadArea.classList.remove('hidden');
         this.fileInfo.classList.add('hidden');
@@ -378,73 +387,408 @@ class LogScanner {
         // Hide all result sections
         this.progressSection.classList.add('hidden');
         this.preprocessingSection.classList.add('hidden');
-        this.chunksSection.classList.add('hidden');
         this.summarySection.classList.add('hidden');
         this.issuesSection.classList.add('hidden');
+        this.chunkSelectionSection.classList.add('hidden');
         
         // Hide and clear chat section
-        if (this.chatSection) {
-            this.chatSection.classList.add('hidden');
-        }
-        if (this.chatMessages) {
-            this.chatMessages.innerHTML = '';
-        }
-        if (this.chunkContextArea) {
-            this.chunkContextArea.value = '';
-        }
-        if (this.fullContextArea) {
-            this.fullContextArea.value = '';
-        }
-        // Reset shadow context
+        if (this.chatSection) this.chatSection.classList.add('hidden');
+        if (this.chatMessages) this.chatMessages.innerHTML = '';
+        if (this.chunkContextArea) this.chunkContextArea.value = '';
+        if (this.fullContextArea) this.fullContextArea.value = '';
         this.shadowContext = '';
         this.lastQuery = '';
         
-        // Clear issue description
-        if (this.issueDescription) {
-            this.issueDescription.value = '';
-        }
+        if (this.issueDescription) this.issueDescription.value = '';
     }
     
-    async startAnalysis() {
+    async previewChunks() {
         if (!this.filePath) {
             alert('No file uploaded');
             return;
         }
         
-        // Check if API key is configured
         if (!this.settings.api_key_configured) {
             alert('Please configure your GitHub Personal Access Token in Settings before analyzing.');
             this.openSettings();
             return;
         }
         
-        // Reset state
-        this.chunkResults = [];
-        this.allIssues = [];
-        
-        // Show progress
-        this.progressSection.classList.remove('hidden');
-        this.progressFill.style.width = '0%';
-        this.progressStatus.textContent = 'Starting analysis...';
-        this.chunkProgress.innerHTML = '';
-        
-        // Hide other sections initially
-        this.preprocessingSection.classList.add('hidden');
-        this.chunksSection.classList.add('hidden');
-        this.summarySection.classList.add('hidden');
-        this.issuesSection.classList.add('hidden');
-        
-        // Disable button
         this.analyzeBtn.disabled = true;
-        this.analyzeBtn.textContent = '⏳ Analyzing...';
+        this.analyzeBtn.textContent = '⏳ Loading chunks...';
+        
+        try {
+            const response = await fetch('/api/preview-chunks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filepath: this.filePath })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            
+            document.getElementById('preview-error-count').textContent = data.preprocessing.error_count;
+            document.getElementById('preview-warning-count').textContent = data.preprocessing.warning_count;
+            
+            this.totalChunksAvailable = data.total_chunks;
+            this.chunkMeta = data.chunks_info;
+            this.chunkResults = {};
+            this.allIssues = [];
+            this.expandedChunk = null;
+            this.analyzingChunks = new Set();
+            
+            this.renderChunkGrid();
+            
+            this.chunkSelectionSection.classList.remove('hidden');
+            this.chunkSelectionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+        } catch (error) {
+            alert('Failed to preview chunks: ' + error.message);
+        } finally {
+            this.analyzeBtn.disabled = false;
+            this.analyzeBtn.textContent = '🚀 Analyze Log';
+        }
+    }
+    
+    // ==================== Dynamic Chunk Grid ====================
+    
+    renderChunkGrid() {
+        let gridHtml = '';
+        this.chunkMeta.forEach(chunk => {
+            const result = this.chunkResults[chunk.num];
+            const isAnalyzed = !!result;
+            const isAnalyzing = this.analyzingChunks.has(chunk.num);
+            const isExpanded = this.expandedChunk === chunk.num;
+            const hasErrors = isAnalyzed && result.issues && result.issues.some(i => i.severity === 'error');
+            const hasWarnings = isAnalyzed && result.issues && result.issues.some(i => i.severity === 'warning');
+            const issueCount = isAnalyzed && result.issues ? result.issues.length : 0;
+            
+            let statusClass = '';
+            let statusIcon = '';
+            if (isAnalyzing) {
+                statusClass = 'analyzing';
+                statusIcon = '<span class="chunk-status-icon analyzing-spinner">⏳</span>';
+            } else if (isAnalyzed) {
+                statusClass = hasErrors ? 'scanned-errors' : (hasWarnings ? 'scanned-warnings' : 'scanned-clean');
+                statusIcon = hasErrors ? '<span class="chunk-status-icon">⚠️</span>' : 
+                             (hasWarnings ? '<span class="chunk-status-icon">⚡</span>' : 
+                              '<span class="chunk-status-icon">✅</span>');
+            } else {
+                statusIcon = '<span class="chunk-status-icon">📄</span>';
+            }
+            
+            gridHtml += `
+                <div class="chunk-select-card ${statusClass} ${isExpanded ? 'expanded' : ''}" 
+                     data-chunk="${chunk.num}" id="chunk-select-${chunk.num}">
+                    <div class="chunk-select-header" data-chunk-header="${chunk.num}">
+                        ${statusIcon}
+                        <strong>Chunk ${chunk.num}</strong>
+                        <span class="chunk-select-meta-inline">Lines ${chunk.lines} &bull; ${chunk.tokens} tok</span>
+                        ${isAnalyzed && issueCount > 0 ? `<span class="chunk-issue-badge">${issueCount} issue${issueCount !== 1 ? 's' : ''}</span>` : ''}
+                        ${isAnalyzed && issueCount === 0 ? '<span class="chunk-clean-badge">Clean</span>' : ''}
+                        <span class="chunk-expand-icon">${isExpanded ? '▲' : '▼'}</span>
+                    </div>
+                    <div class="chunk-expand-content ${isExpanded ? '' : 'hidden'}" id="chunk-expand-${chunk.num}">
+                        ${this.renderChunkExpandedContent(chunk.num)}
+                    </div>
+                </div>
+            `;
+        });
+        this.chunkSelectionGrid.innerHTML = gridHtml;
+        
+        // Add click handlers to headers
+        document.querySelectorAll('[data-chunk-header]').forEach(header => {
+            header.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const chunkNum = parseInt(header.dataset.chunkHeader);
+                this.toggleChunkExpand(chunkNum);
+            });
+        });
+        
+        // Add click handlers to analyze buttons
+        document.querySelectorAll('.chunk-analyze-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const chunkNum = parseInt(btn.dataset.chunk);
+                this.analyzeSingleChunk(chunkNum);
+            });
+        });
+        
+        this.updateGenerateSummaryBtn();
+    }
+    
+    renderChunkExpandedContent(chunkNum) {
+        const result = this.chunkResults[chunkNum];
+        const isAnalyzing = this.analyzingChunks.has(chunkNum);
+        const chunk = this.chunkMeta.find(c => c.num === chunkNum);
+        
+        if (isAnalyzing) {
+            return `
+                <div class="chunk-detail-loading">
+                    <div class="analyzing-indicator">
+                        <span class="typing-dot"></span>
+                        <span class="typing-dot"></span>
+                        <span class="typing-dot"></span>
+                    </div>
+                    <p>Analyzing chunk ${chunkNum}...</p>
+                </div>
+            `;
+        }
+        
+        if (!result) {
+            return `
+                <div class="chunk-detail-preview">
+                    <div class="chunk-select-preview">${this.escapeHtml(chunk ? chunk.preview : '')}</div>
+                    <button class="btn btn-primary btn-small chunk-analyze-btn" data-chunk="${chunkNum}">
+                        🔍 Analyze This Chunk
+                    </button>
+                </div>
+            `;
+        }
+        
+        return this.renderChunkResults(result);
+    }
+    
+    renderChunkResults(result) {
+        let html = '<div class="chunk-detail-results">';
+        html += `<div class="chunk-summary"><h4>📋 TL;DR</h4><p>${result.chunk_summary || 'No summary available'}</p></div>`;
+        
+        if (result.issues && result.issues.length > 0) {
+            html += '<div class="chunk-issues"><h4>🚨 Issues Found:</h4>';
+            result.issues.forEach(issue => {
+                html += `
+                    <div class="issue-card ${issue.severity}">
+                        <div class="issue-header">
+                            <span class="issue-type">
+                                <span class="severity-badge ${issue.severity}">${issue.severity}</span>
+                                ${issue.type}
+                            </span>
+                        </div>
+                        <p class="issue-description">${issue.description}</p>
+                        ${issue.possible_causes && issue.possible_causes.length > 0 ? `
+                            <div class="issue-causes">
+                                <strong>Possible Causes:</strong>
+                                <ul>${issue.possible_causes.map(c => `<li>${c}</li>`).join('')}</ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            html += '</div>';
+        } else {
+            html += '<p class="muted" style="margin-top: 0.75rem;">No issues found in this chunk.</p>';
+        }
+        
+        const hasPatterns = result.patterns_detected && result.patterns_detected.length > 0;
+        const hasEvents = result.notable_events && result.notable_events.length > 0;
+        
+        if (hasPatterns || hasEvents) {
+            html += '<div class="chunk-summary-section"><h4>📝 Summary:</h4>';
+            if (hasPatterns) {
+                html += '<div class="summary-subsection"><strong>Patterns Detected:</strong><ul>';
+                result.patterns_detected.forEach(p => { html += `<li>${p}</li>`; });
+                html += '</ul></div>';
+            }
+            if (hasEvents) {
+                html += '<div class="summary-subsection"><strong>Notable Events:</strong><ul>';
+                result.notable_events.forEach(ev => { html += `<li>${ev}</li>`; });
+                html += '</ul></div>';
+            }
+            html += '</div>';
+        }
+        
+        if (result.running_issues_update) {
+            html += `<div class="chunk-context"><h4>🔗 Context Connection:</h4><p>${result.running_issues_update}</p></div>`;
+        }
+        
+        html += '</div>';
+        return html;
+    }
+    
+    toggleChunkExpand(chunkNum) {
+        if (this.expandedChunk === chunkNum) {
+            this.expandedChunk = null;
+        } else {
+            this.expandedChunk = chunkNum;
+        }
+        this.renderChunkGrid();
+        
+        if (this.expandedChunk) {
+            const card = document.getElementById(`chunk-select-${chunkNum}`);
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    }
+    
+    async analyzeSingleChunk(chunkNum) {
+        if (this.analyzingChunks.has(chunkNum)) return;
+        
+        this.analyzingChunks.add(chunkNum);
+        this.expandedChunk = chunkNum;
+        this.renderChunkGrid();
+        
+        try {
+            const issueDesc = this.issueDescription ? this.issueDescription.value.trim() : '';
+            
+            // Build running context from previously analyzed chunks
+            let runningSummary = '';
+            let previousIssues = [];
+            for (let i = 1; i < chunkNum; i++) {
+                const prev = this.chunkResults[i];
+                if (prev) {
+                    runningSummary += `\nChunk ${i}: ${prev.chunk_summary || 'No summary'}`;
+                    if (prev.running_issues_update) {
+                        runningSummary += ` | Issues: ${prev.running_issues_update}`;
+                    }
+                    if (prev.issues) {
+                        previousIssues = previousIssues.concat(prev.issues);
+                    }
+                }
+            }
+            
+            const response = await fetch('/api/analyze-chunk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filepath: this.filePath,
+                    chunk_num: chunkNum,
+                    issue_description: issueDesc,
+                    running_summary: runningSummary,
+                    previous_issues: previousIssues
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.error) {
+                alert(`Error analyzing chunk ${chunkNum}: ${result.error}`);
+                return;
+            }
+            
+            this.chunkResults[chunkNum] = result;
+            
+            if (result.issues && result.issues.length > 0) {
+                result.issues.forEach(issue => {
+                    issue.chunk = chunkNum;
+                    this.allIssues.push(issue);
+                });
+            }
+            
+            this.updateIssuesSection();
+            this.showChatSection();
+            
+        } catch (error) {
+            alert(`Failed to analyze chunk ${chunkNum}: ${error.message}`);
+        } finally {
+            this.analyzingChunks.delete(chunkNum);
+            this.renderChunkGrid();
+        }
+    }
+    
+    updateGenerateSummaryBtn() {
+        const analyzedCount = Object.keys(this.chunkResults).length;
+        if (analyzedCount > 0) {
+            this.generateSummaryBtn.disabled = false;
+            this.generateSummaryBtn.textContent = `📝 Generate Summary (${analyzedCount} chunks)`;
+        } else {
+            this.generateSummaryBtn.disabled = true;
+            this.generateSummaryBtn.textContent = '📝 Generate Summary';
+        }
+    }
+    
+    async generateSummary() {
+        const analyzedChunks = Object.keys(this.chunkResults).map(Number).sort((a, b) => a - b);
+        if (analyzedChunks.length === 0) return;
+        
+        this.generateSummaryBtn.disabled = true;
+        this.generateSummaryBtn.textContent = '⏳ Generating...';
         
         try {
             const issueDesc = this.issueDescription ? this.issueDescription.value.trim() : '';
             const response = await fetch('/analyze-stream', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filepath: this.filePath,
+                    issue_description: issueDesc,
+                    selected_chunks: analyzedChunks
+                })
+            });
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.type === 'final_summary') {
+                                this.finalSummary = data.data;
+                                this.showFinalSummary(data.data);
+                            } else if (data.type === 'complete') {
+                                this.showChatSection();
+                            } else if (data.type === 'chunk_result') {
+                                const chunkNum = data.data.chunk_num;
+                                this.chunkResults[chunkNum] = data.data;
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse:', line);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            alert('Failed to generate summary: ' + error.message);
+        } finally {
+            this.generateSummaryBtn.disabled = false;
+            this.updateGenerateSummaryBtn();
+        }
+    }
+    
+    // ==================== Analyze All (Streaming) ====================
+    
+    async startAnalysisAll() {
+        if (!this.filePath) return;
+        if (!this.settings.api_key_configured) {
+            alert('Please configure your GitHub Personal Access Token in Settings before analyzing.');
+            this.openSettings();
+            return;
+        }
+        
+        this.chunkResults = {};
+        this.allIssues = [];
+        
+        this.progressSection.classList.remove('hidden');
+        this.progressFill.style.width = '0%';
+        this.progressStatus.textContent = 'Starting analysis...';
+        this.chunkProgress.innerHTML = '';
+        
+        this.preprocessingSection.classList.add('hidden');
+        this.summarySection.classList.add('hidden');
+        this.issuesSection.classList.add('hidden');
+        
+        this.analyzeBtn.disabled = true;
+        this.analyzeBtn.textContent = '⏳ Analyzing...';
+        this.analyzeAllBtn.disabled = true;
+        
+        try {
+            const issueDesc = this.issueDescription ? this.issueDescription.value.trim() : '';
+            const response = await fetch('/analyze-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     filepath: this.filePath,
                     issue_description: issueDesc
@@ -457,14 +801,10 @@ class LogScanner {
             
             while (true) {
                 const { done, value } = await reader.read();
-                
                 if (done) break;
-                
                 buffer += decoder.decode(value, { stream: true });
-                
-                // Process complete events
                 const lines = buffer.split('\n');
-                buffer = lines.pop(); // Keep incomplete line in buffer
+                buffer = lines.pop();
                 
                 for (const line of lines) {
                     if (line.startsWith('data: ')) {
@@ -483,6 +823,7 @@ class LogScanner {
         } finally {
             this.analyzeBtn.disabled = false;
             this.analyzeBtn.textContent = '🚀 Analyze Log';
+            this.analyzeAllBtn.disabled = false;
         }
     }
     
@@ -507,7 +848,7 @@ class LogScanner {
                 break;
                 
             case 'final_summary':
-                this.finalSummary = data.data; // Store final summary for chat context
+                this.finalSummary = data.data;
                 this.showFinalSummary(data.data);
                 this.progressFill.style.width = '95%';
                 break;
@@ -515,8 +856,9 @@ class LogScanner {
             case 'complete':
                 this.progressFill.style.width = '100%';
                 this.progressStatus.textContent = `Analysis complete! Analyzed ${data.data.chunks_analyzed} chunks, found ${data.data.total_issues} issues.`;
-                // Show chat section after analysis completes
                 this.showChatSection();
+                // Re-render the chunk grid with results
+                this.renderChunkGrid();
                 setTimeout(() => {
                     this.progressSection.classList.add('hidden');
                 }, 2000);
@@ -530,7 +872,7 @@ class LogScanner {
     }
     
     showPreprocessing(data) {
-        this.preprocessingSection.classList.remove('hidden');
+        // Stats already shown in the Log Chunks section; skip the duplicate card
         
         this.errorCount.textContent = data.error_count;
         this.warningCount.textContent = data.warning_count;
@@ -566,7 +908,7 @@ class LogScanner {
     }
     
     setupChunkProgress(data) {
-        this.totalChunks = data.total_chunks;
+        this.totalChunks = data.analyzed_chunks || data.total_chunks;
         
         let html = '';
         data.chunks_info.forEach(chunk => {
@@ -576,7 +918,8 @@ class LogScanner {
     }
     
     handleChunkResult(data) {
-        this.chunkResults.push(data);
+        // Store into chunkResults by chunk number
+        this.chunkResults[data.chunk_num] = data;
         
         // Collect issues
         if (data.issues && data.issues.length > 0) {
@@ -586,7 +929,7 @@ class LogScanner {
             });
         }
         
-        // Update progress
+        // Update progress badge
         const badge = document.getElementById(`chunk-badge-${data.chunk_num}`);
         if (badge) {
             badge.classList.remove('processing');
@@ -596,154 +939,17 @@ class LogScanner {
             }
         }
         
-        // Mark next chunk as processing
         const nextBadge = document.getElementById(`chunk-badge-${data.chunk_num + 1}`);
         if (nextBadge) {
             nextBadge.classList.add('processing');
         }
         
-        // Update progress bar
-        const progress = 15 + (data.chunk_num / this.totalChunks) * 75;
+        const analyzedCount = Object.keys(this.chunkResults).length;
+        const progress = 15 + (analyzedCount / this.totalChunks) * 75;
         this.progressFill.style.width = `${progress}%`;
-        
-        // Update chunks section
-        this.updateChunksSection();
         
         // Update issues section
         this.updateIssuesSection();
-    }
-    
-    updateChunksSection() {
-        this.chunksSection.classList.remove('hidden');
-        
-        // Build tabs
-        let tabsHtml = '';
-        this.chunkResults.forEach((result, index) => {
-            const hasErrors = result.issues && result.issues.some(i => i.severity === 'error');
-            const activeClass = index === this.currentChunk ? 'active' : '';
-            const errorClass = hasErrors ? 'has-errors' : '';
-            tabsHtml += `
-                <button class="chunk-tab ${activeClass} ${errorClass}" data-chunk="${index}">
-                    Chunk ${result.chunk_num}
-                    ${hasErrors ? '⚠️' : '✓'}
-                </button>
-            `;
-        });
-        this.chunkTabs.innerHTML = tabsHtml;
-        
-        // Add click handlers
-        document.querySelectorAll('.chunk-tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                this.currentChunk = parseInt(e.target.dataset.chunk);
-                this.updateChunksSection();
-                // Update chat context when switching chunks
-                this.updateChatContexts();
-            });
-        });
-        
-        // Show current chunk content
-        this.showChunkContent(this.chunkResults[this.currentChunk]);
-    }
-    
-    showChunkContent(result) {
-        let html = `
-            <div class="chunk-summary">
-                <h4>📋 Chunk TL;DR <span class="chunk-lines">(Lines ${result.lines})</span></h4>
-                <p>${result.chunk_summary || 'No summary available'}</p>
-            </div>
-        `;
-        
-        // Issues
-        if (result.issues && result.issues.length > 0) {
-            html += '<div class="chunk-issues"><h4>🚨 Issues Found:</h4>';
-            result.issues.forEach(issue => {
-                html += `
-                    <div class="issue-card ${issue.severity}">
-                        <div class="issue-header">
-                            <span class="issue-type">
-                                <span class="severity-badge ${issue.severity}">${issue.severity}</span>
-                                ${issue.type}
-                            </span>
-                        </div>
-                        <p class="issue-description">${issue.description}</p>
-                        ${issue.possible_causes && issue.possible_causes.length > 0 ? `
-                            <div class="issue-causes">
-                                <strong>Possible Causes:</strong>
-                                <ul>
-                                    ${issue.possible_causes.map(c => `<li>${c}</li>`).join('')}
-                                </ul>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            });
-            html += '</div>';
-        }
-        
-        // Issue Counts - aggregate similar issues
-        if (result.issues && result.issues.length > 0) {
-            const issueCounts = {};
-            result.issues.forEach(issue => {
-                const key = `${issue.severity}:${issue.type}`;
-                if (!issueCounts[key]) {
-                    issueCounts[key] = { severity: issue.severity, type: issue.type, count: 0 };
-                }
-                issueCounts[key].count++;
-            });
-            
-            const counts = Object.values(issueCounts);
-            if (counts.length > 0) {
-                html += '<div class="chunk-issue-counts"><h4>📊 Issue Counts:</h4><div class="issue-counts-grid">';
-                counts.sort((a, b) => b.count - a.count).forEach(item => {
-                    html += `
-                        <div class="issue-count-item ${item.severity}">
-                            <span class="issue-count-number">${item.count}</span>
-                            <span class="issue-count-label">${item.type}</span>
-                            <span class="severity-badge ${item.severity}">${item.severity}</span>
-                        </div>
-                    `;
-                });
-                html += '</div></div>';
-            }
-        }
-        
-        // Summary - combines patterns and notable events
-        const hasPatterns = result.patterns_detected && result.patterns_detected.length > 0;
-        const hasEvents = result.notable_events && result.notable_events.length > 0;
-        
-        if (hasPatterns || hasEvents) {
-            html += '<div class="chunk-summary-section"><h4>📝 Summary:</h4>';
-            
-            if (hasPatterns) {
-                html += '<div class="summary-subsection"><strong>Patterns Detected:</strong><ul>';
-                result.patterns_detected.forEach(pattern => {
-                    html += `<li>${pattern}</li>`;
-                });
-                html += '</ul></div>';
-            }
-            
-            if (hasEvents) {
-                html += '<div class="summary-subsection"><strong>Notable Events:</strong><ul>';
-                result.notable_events.forEach(event => {
-                    html += `<li>${event}</li>`;
-                });
-                html += '</ul></div>';
-            }
-            
-            html += '</div>';
-        }
-        
-        // Running Issues Update
-        if (result.running_issues_update) {
-            html += `
-                <div class="chunk-context">
-                    <h4>🔗 Context Connection:</h4>
-                    <p>${result.running_issues_update}</p>
-                </div>
-            `;
-        }
-        
-        this.chunkContent.innerHTML = html;
     }
     
     showFinalSummary(data) {
@@ -912,19 +1118,19 @@ class LogScanner {
     }
     
     generateChunkContext() {
-        if (this.chunkResults.length === 0) return '';
+        // Use expanded chunk or first analyzed chunk
+        const chunkNum = this.expandedChunk || Object.keys(this.chunkResults).map(Number).sort((a,b) => a-b)[0];
+        if (!chunkNum) return '';
         
-        const currentResult = this.chunkResults[this.currentChunk];
+        const currentResult = this.chunkResults[chunkNum];
         if (!currentResult) return '';
         
         let context = `### Chunk ${currentResult.chunk_num} (Lines ${currentResult.lines})\n\n`;
         
-        // TL;DR summary
         if (currentResult.chunk_summary) {
             context += `**TL;DR:** ${currentResult.chunk_summary}\n\n`;
         }
         
-        // Issues in this chunk
         if (currentResult.issues && currentResult.issues.length > 0) {
             context += `**Issues Found (${currentResult.issues.length}):**\n`;
             currentResult.issues.forEach((issue, idx) => {
@@ -936,25 +1142,18 @@ class LogScanner {
             context += '\n';
         }
         
-        // Patterns detected
         if (currentResult.patterns_detected && currentResult.patterns_detected.length > 0) {
             context += `**Patterns Detected:**\n`;
-            currentResult.patterns_detected.forEach(pattern => {
-                context += `- ${pattern}\n`;
-            });
+            currentResult.patterns_detected.forEach(pattern => { context += `- ${pattern}\n`; });
             context += '\n';
         }
         
-        // Notable events
         if (currentResult.notable_events && currentResult.notable_events.length > 0) {
             context += `**Notable Events:**\n`;
-            currentResult.notable_events.forEach(event => {
-                context += `- ${event}\n`;
-            });
+            currentResult.notable_events.forEach(event => { context += `- ${event}\n`; });
             context += '\n';
         }
         
-        // Running issues update
         if (currentResult.running_issues_update) {
             context += `**Context Connection:** ${currentResult.running_issues_update}\n`;
         }
@@ -965,29 +1164,20 @@ class LogScanner {
     generateFullContext() {
         let context = '';
         
-        // Overall summary from final analysis
         if (this.finalSummary) {
             context += `### Overall Analysis Summary\n\n`;
             context += `**Health Status:** ${this.finalSummary.overall_health || 'Unknown'}\n\n`;
+            if (this.finalSummary.executive_summary) context += `**Executive Summary:** ${this.finalSummary.executive_summary}\n\n`;
+            if (this.finalSummary.issue_timeline) context += `**Issue Timeline:** ${this.finalSummary.issue_timeline}\n\n`;
             
-            if (this.finalSummary.executive_summary) {
-                context += `**Executive Summary:** ${this.finalSummary.executive_summary}\n\n`;
-            }
-            
-            if (this.finalSummary.issue_timeline) {
-                context += `**Issue Timeline:** ${this.finalSummary.issue_timeline}\n\n`;
-            }
-            
-            // Key findings
             if (this.finalSummary.key_findings && this.finalSummary.key_findings.length > 0) {
                 context += `**Key Findings:**\n`;
-                this.finalSummary.key_findings.forEach(finding => {
-                    context += `- [${finding.severity.toUpperCase()}] ${finding.title}: ${finding.description}\n`;
+                this.finalSummary.key_findings.forEach(f => {
+                    context += `- [${f.severity.toUpperCase()}] ${f.title}: ${f.description}\n`;
                 });
                 context += '\n';
             }
             
-            // Root cause analysis
             if (this.finalSummary.root_cause_analysis && this.finalSummary.root_cause_analysis.length > 0) {
                 context += `**Root Cause Analysis:**\n`;
                 this.finalSummary.root_cause_analysis.forEach(rca => {
@@ -997,26 +1187,19 @@ class LogScanner {
             }
         }
         
-        // All issues summary by severity
         if (this.allIssues.length > 0) {
             const errorCount = this.allIssues.filter(i => i.severity === 'error').length;
             const warningCount = this.allIssues.filter(i => i.severity === 'warning').length;
             const infoCount = this.allIssues.filter(i => i.severity === 'info').length;
             
-            context += `### All Issues Summary\n`;
-            context += `Total: ${this.allIssues.length} issues (${errorCount} errors, ${warningCount} warnings, ${infoCount} info)\n\n`;
+            context += `### All Issues Summary\nTotal: ${this.allIssues.length} issues (${errorCount} errors, ${warningCount} warnings, ${infoCount} info)\n\n`;
             
-            // Group issues by type
             const issuesByType = {};
             this.allIssues.forEach(issue => {
                 const key = `${issue.severity}:${issue.type}`;
-                if (!issuesByType[key]) {
-                    issuesByType[key] = { severity: issue.severity, type: issue.type, count: 0, examples: [] };
-                }
+                if (!issuesByType[key]) issuesByType[key] = { severity: issue.severity, type: issue.type, count: 0, examples: [] };
                 issuesByType[key].count++;
-                if (issuesByType[key].examples.length < 2) {
-                    issuesByType[key].examples.push(issue.description);
-                }
+                if (issuesByType[key].examples.length < 2) issuesByType[key].examples.push(issue.description);
             });
             
             Object.values(issuesByType).sort((a, b) => b.count - a.count).forEach(item => {
@@ -1027,10 +1210,11 @@ class LogScanner {
             });
         }
         
-        // Chunk summaries
-        if (this.chunkResults.length > 0) {
+        const analyzedNums = Object.keys(this.chunkResults).map(Number).sort((a,b) => a-b);
+        if (analyzedNums.length > 0) {
             context += `\n### Chunk-by-Chunk Summary\n`;
-            this.chunkResults.forEach(chunk => {
+            analyzedNums.forEach(num => {
+                const chunk = this.chunkResults[num];
                 context += `\n**Chunk ${chunk.chunk_num}** (Lines ${chunk.lines}):\n`;
                 context += chunk.chunk_summary || 'No summary';
                 context += '\n';
@@ -1057,29 +1241,10 @@ class LogScanner {
         }
     }
     
-    getRawExcerptForCurrentChunk() {
-        if (this.chunkResults.length === 0) return '';
-        const currentResult = this.chunkResults[this.currentChunk];
-        if (!currentResult || !currentResult.raw_excerpt) return '';
-        return `### Raw Log Lines from Chunk ${currentResult.chunk_num} (Lines ${currentResult.lines}):\n\`\`\`\n${currentResult.raw_excerpt}\n\`\`\``;
-    }
-    
     getRawExcerptForChunk(chunkNum) {
-        if (this.chunkResults.length === 0) return '';
-        const chunk = this.chunkResults.find(c => c.chunk_num === chunkNum);
+        const chunk = this.chunkResults[chunkNum];
         if (!chunk || !chunk.raw_excerpt) return '';
         return `### Raw Log Lines from Chunk ${chunk.chunk_num} (Lines ${chunk.lines}):\n\`\`\`\n${chunk.raw_excerpt}\n\`\`\``;
-    }
-    
-    getAllRawExcerpts() {
-        if (this.chunkResults.length === 0) return '';
-        let excerpts = [];
-        this.chunkResults.forEach(chunk => {
-            if (chunk.raw_excerpt) {
-                excerpts.push(`### Chunk ${chunk.chunk_num} (Lines ${chunk.lines}):\n\`\`\`\n${chunk.raw_excerpt}\n\`\`\``);
-            }
-        });
-        return excerpts.join('\n\n');
     }
     
     async sendChatMessage(retryWithRawContent = false, chunksToFetch = null) {
@@ -1107,7 +1272,6 @@ class LogScanner {
             this.updateTypingIndicator(typingId, 'Fetching additional log content...');
             
             if (chunksToFetch && chunksToFetch.length > 0) {
-                // Fetch specific chunks requested by AI
                 chunksToFetch.forEach(chunkNum => {
                     const rawExcerpt = this.getRawExcerptForChunk(chunkNum);
                     if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
@@ -1115,10 +1279,13 @@ class LogScanner {
                     }
                 });
             } else {
-                // Default: add current chunk's raw excerpt
-                const rawExcerpt = this.getRawExcerptForCurrentChunk();
-                if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
-                    this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
+                // Default: use expanded chunk or first analyzed chunk
+                const defaultChunk = this.expandedChunk || Object.keys(this.chunkResults).map(Number).sort((a,b) => a-b)[0];
+                if (defaultChunk) {
+                    const rawExcerpt = this.getRawExcerptForChunk(defaultChunk);
+                    if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
+                        this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
+                    }
                 }
             }
         }

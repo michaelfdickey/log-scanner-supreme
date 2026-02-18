@@ -25,35 +25,35 @@ app.secret_key = os.urandom(24)
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'log', 'txt', 'json', 'xml', 'csv', 'out', 'err'}
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max file size
+MODELS_FILE = os.path.join(BASE_DIR, 'copilot-api', 'available_models.json')
 
-# Available models for Copilot API (grouped by vendor)
-# Only includes models that support /chat/completions endpoint
-AVAILABLE_MODELS = [
-    # --- OpenAI GPT-5.x ---
-    {'id': 'gpt-5.2', 'name': 'GPT-5.2 (OpenAI, Versatile)'},
-    {'id': 'gpt-5.1', 'name': 'GPT-5.1 (OpenAI, Versatile)'},
-    {'id': 'gpt-5', 'name': 'GPT-5 (OpenAI, Versatile)'},
-    {'id': 'gpt-5-mini', 'name': 'GPT-5 Mini (OpenAI, Lightweight)'},
-    # --- OpenAI GPT-4.x ---
-    {'id': 'gpt-4.1', 'name': 'GPT-4.1 (OpenAI, Versatile)'},
+# Fallback model list used when available_models.json hasn't been generated yet
+FALLBACK_MODELS = [
     {'id': 'gpt-4o', 'name': 'GPT-4o (OpenAI)'},
     {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini (OpenAI, Fast)'},
-    {'id': 'gpt-4', 'name': 'GPT-4 (OpenAI, Legacy)'},
-    {'id': 'gpt-3.5-turbo', 'name': 'GPT-3.5 Turbo (OpenAI, Budget)'},
-    # --- Anthropic Claude ---
-    {'id': 'claude-opus-4.6', 'name': 'Claude Opus 4.6 (Anthropic, Powerful)'},
-    {'id': 'claude-opus-4.5', 'name': 'Claude Opus 4.5 (Anthropic, Powerful)'},
-    {'id': 'claude-opus-41', 'name': 'Claude Opus 4.1 (Anthropic, Powerful)'},
-    {'id': 'claude-sonnet-4.5', 'name': 'Claude Sonnet 4.5 (Anthropic, Versatile)'},
     {'id': 'claude-sonnet-4', 'name': 'Claude Sonnet 4 (Anthropic, Versatile)'},
-    {'id': 'claude-haiku-4.5', 'name': 'Claude Haiku 4.5 (Anthropic, Fast)'},
-    # --- Google Gemini ---
-    {'id': 'gemini-3-pro-preview', 'name': 'Gemini 3 Pro (Google, Preview)'},
-    {'id': 'gemini-3-flash-preview', 'name': 'Gemini 3 Flash (Google, Preview)'},
-    {'id': 'gemini-2.5-pro', 'name': 'Gemini 2.5 Pro (Google, Powerful)'},
-    # --- xAI Grok ---
-    {'id': 'grok-code-fast-1', 'name': 'Grok Code Fast 1 (xAI, Lightweight)'},
+    {'id': 'gpt-3.5-turbo', 'name': 'GPT-3.5 Turbo (OpenAI, Budget)'},
 ]
+
+
+def load_available_models():
+    """Load models from the cached JSON file, falling back to defaults."""
+    if os.path.exists(MODELS_FILE):
+        try:
+            with open(MODELS_FILE, 'r') as f:
+                data = json.load(f)
+            models = data.get('models', [])
+            if models:
+                return [
+                    {'id': m['id'], 'name': m.get('display_name', m.get('name', m['id']))}
+                    for m in models
+                ]
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return FALLBACK_MODELS
+
+
+AVAILABLE_MODELS = load_available_models()
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH

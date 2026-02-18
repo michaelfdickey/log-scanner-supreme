@@ -513,11 +513,36 @@ header h1 {
     border-radius: 6px;
     font-size: 0.9rem;
     color: var(--text-primary);
+    position: relative;
+    overflow: hidden;
 }
 
 .log-type-display.detecting {
     color: var(--text-muted);
     font-style: italic;
+}
+
+.log-type-display.detecting::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(59, 130, 246, 0.25) 40%,
+        rgba(59, 130, 246, 0.5) 50%,
+        rgba(59, 130, 246, 0.25) 60%,
+        transparent 100%
+    );
+    animation: knightRider 1.5s ease-in-out infinite;
+}
+
+@keyframes knightRider {
+    0%   { left: -30%; }
+    100% { left: 100%; }
 }
 
 .file-icon {

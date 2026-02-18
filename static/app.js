@@ -560,10 +560,12 @@ class LogScanner {
     async detectLogType() {
         if (!this.filePath || !this.settings.api_key_configured) return;
         
-        // Show detecting state
+        // Show detecting state and disable action buttons
         this.logTypeDisplay.classList.remove('hidden');
         this.logTypeDisplay.classList.add('detecting');
         this.logTypeText.textContent = '🔍 Detecting log type...';
+        this.fastSummaryBtn.disabled = true;
+        this.analyzeBtn.disabled = true;
         
         try {
             const response = await fetch('/api/detect-log-type', {
@@ -576,6 +578,8 @@ class LogScanner {
             
             if (data.error) {
                 this.logTypeDisplay.classList.add('hidden');
+                this.fastSummaryBtn.disabled = false;
+                this.analyzeBtn.disabled = false;
                 console.error('Log type detection failed:', data.error);
                 return;
             }
@@ -588,11 +592,14 @@ class LogScanner {
                 this.logTypeText.textContent += ` — ${data.description}`;
             }
             
-            // Update button text
-            this.fastSummaryBtn.textContent = '⚡ Continue Fast Summary';
+            // Re-enable and update button text
+            this.fastSummaryBtn.disabled = false;
+            this.analyzeBtn.disabled = false;
             
         } catch (error) {
             this.logTypeDisplay.classList.add('hidden');
+            this.fastSummaryBtn.disabled = false;
+            this.analyzeBtn.disabled = false;
             console.error('Log type detection failed:', error);
         }
     }
@@ -668,7 +675,7 @@ class LogScanner {
         } finally {
             this.fastSummaryBtn.disabled = false;
             this.analyzeBtn.disabled = false;
-            this.fastSummaryBtn.textContent = this.detectedLogType ? '⚡ Continue Fast Summary' : '⚡ Fast Summary';
+            this.fastSummaryBtn.textContent = '⚡ Fast Summary';
         }
     }
     

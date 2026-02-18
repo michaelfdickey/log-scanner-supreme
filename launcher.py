@@ -13,6 +13,7 @@ import sys
 import subprocess
 import signal
 import platform
+import time
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +65,26 @@ def kill_existing_process():
                             os.kill(int(pid), signal.SIGTERM)
                         except ProcessLookupError:
                             pass
+                
+                # Wait briefly for processes to terminate
+                time.sleep(1)
+                
+                # Force kill any that are still alive
+                result2 = subprocess.run(
+                    ['lsof', '-ti', f':{PORT}'],
+                    capture_output=True,
+                    text=True
+                )
+                if result2.stdout.strip():
+                    for pid in result2.stdout.strip().split('\n'):
+                        if pid:
+                            print(f"⚠️  Force killing stubborn process (PID: {pid})...")
+                            try:
+                                os.kill(int(pid), signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                    time.sleep(0.5)
+                
                 print("✅ Existing processes terminated")
             else:
                 print("✅ No existing process found on port")

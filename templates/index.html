@@ -41,11 +41,22 @@
                     </div>
                     
                     <div class="settings-group">
-                        <label for="model-select">AI Model</label>
+                        <label for="fast-model-select">⚡ Fast Analysis Model</label>
+                        <div class="settings-row">
+                            <select id="fast-model-select">
+                                <!-- Options populated by JavaScript -->
+                            </select>
+                            <button class="btn btn-small btn-secondary" id="edit-fast-prompts-btn" title="Edit Fast Summary Prompts">📝 Prompts</button>
+                        </div>
+                        <p class="input-help">Model used for Fast Summary. Lightweight models recommended.</p>
+                    </div>
+
+                    <div class="settings-group">
+                        <label for="model-select">🔬 Thorough Analysis Model</label>
                         <select id="model-select">
                             <!-- Options populated by JavaScript -->
                         </select>
-                        <p class="input-help">Choose a model. Lightweight models are fast, Powerful models are most capable.</p>
+                        <p class="input-help">Model used for Thorough Analysis and Chat. Powerful models recommended.</p>
                     </div>
                     
                     <div class="settings-group">
@@ -57,6 +68,52 @@
                 <div class="modal-footer">
                     <button class="btn btn-secondary" id="settings-cancel">Cancel</button>
                     <button class="btn btn-success" id="settings-save">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompt Editor Modal -->
+        <div id="prompt-editor-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content modal-wide">
+                <div class="modal-header">
+                    <h2>📝 Edit Fast Summary Prompts</h2>
+                    <button class="modal-close" id="prompt-editor-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="input-help">Edit the prompts sent to the AI for Fast Summary analysis. Use <code>{{variable}}</code> placeholders for dynamic values.</p>
+                    <div class="prompt-variables-info">
+                        <details>
+                            <summary>Available variables</summary>
+                            <ul>
+                                <li><code>{{focus_instruction}}</code> — Expanded issue description block (built from focus_instruction_template when user provides an issue description)</li>
+                                <li><code>{{log_type_instruction}}</code> — Auto-detected log type context plus any specific analysis instructions from log_types.md</li>
+                                <li><code>{{log_type_prompt}}</code> — The specific analysis prompt for this log type from log_types.md (empty if no match)</li>
+                                <li><code>{{total_lines}}</code> — Total number of lines in the log file</li>
+                                <li><code>{{error_count}}</code> — Number of pre-scanned error lines</li>
+                                <li><code>{{warning_count}}</code> — Number of pre-scanned warning lines</li>
+                                <li><code>{{condensed_text}}</code> — The condensed log content</li>
+                                <li><code>{{issue_description}}</code> — The user's issue description (used in focus_instruction_template)</li>
+                            </ul>
+                        </details>
+                    </div>
+                    <div class="settings-group">
+                        <label for="prompt-system">System Prompt</label>
+                        <textarea id="prompt-system" class="prompt-textarea" rows="12"></textarea>
+                    </div>
+                    <div class="settings-group">
+                        <label for="prompt-user">User Prompt</label>
+                        <textarea id="prompt-user" class="prompt-textarea" rows="8"></textarea>
+                    </div>
+                    <div class="settings-group">
+                        <label for="prompt-focus">Focus Instruction Template <span class="muted">(used when issue description is provided)</span></label>
+                        <textarea id="prompt-focus" class="prompt-textarea" rows="4"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="prompt-editor-cancel">Cancel</button>
+                    <button class="btn btn-warning" id="prompt-editor-reset">Reset to Defaults</button>
+                    <button class="btn btn-success" id="prompt-editor-save">Save Prompts</button>
                 </div>
             </div>
         </div>
@@ -88,8 +145,13 @@
                     <label for="issue-description" class="issue-description-label">Description of the issue (optional)</label>
                     <textarea id="issue-description" class="issue-description-input" placeholder="e.g., Users are reporting intermittent 500 errors when uploading files..." rows="2"></textarea>
                 </div>
+                <div id="log-type-display" class="log-type-display hidden">
+                    <span id="log-type-text"></span>
+                </div>
                 <div class="file-actions">
-                    <button class="btn btn-success" id="analyze-btn">🚀 Analyze Log</button>
+                    <button class="btn btn-primary" id="fast-summary-btn">⚡ Fast Summary</button>
+                    <button class="btn btn-success" id="analyze-btn">🔬 Thorough Analysis</button>
+                    <button class="btn btn-outline" id="agentic-btn" disabled title="Coming soon — AI-driven iterative log exploration">🤖 Agentic Loop</button>
                     <button class="btn btn-secondary" id="clear-btn">✕ Clear</button>
                 </div>
             </div>
@@ -149,6 +211,8 @@
         <!-- Final Summary -->
         <section id="summary-section" class="card hidden">
             <h2>📝 Final Analysis Report</h2>
+            
+            <div id="scaling-status" class="scaling-status-banner hidden"></div>
             
             <div id="executive-summary" class="executive-summary"></div>
             

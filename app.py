@@ -26,6 +26,8 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'log', 'txt', 'json', 'xml', 'csv', 'out', 'err'}
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max file size
 MODELS_FILE = os.path.join(BASE_DIR, 'copilot-api', 'available_models.json')
+PROMPTS_FILE = os.path.join(BASE_DIR, 'copilot-api', 'prompts.json')
+LOG_TYPES_FILE = os.path.join(BASE_DIR, 'processes', 'log_types.md')
 
 # Fallback model list used when available_models.json hasn't been generated yet
 FALLBACK_MODELS = [
@@ -45,7 +47,12 @@ def load_available_models():
             models = data.get('models', [])
             if models:
                 return [
-                    {'id': m['id'], 'name': m.get('display_name', m.get('name', m['id']))}
+                    {
+                        'id': m['id'],
+                        'name': m.get('display_name', m.get('name', m['id'])),
+                        'max_context_tokens': m.get('max_context_window_tokens'),
+                        'max_output_tokens': m.get('max_output_tokens'),
+                    }
                     for m in models
                 ]
         except (json.JSONDecodeError, KeyError):
@@ -71,6 +78,7 @@ def ensure_settings_file():
         default_settings = {
             'github_pat': '',
             'model': 'gpt-4o-mini',
+            'fast_model': 'gpt-4o-mini',
             'chunk_size': 3000
         }
         with open(SETTINGS_FILE, 'w') as f:
@@ -91,13 +99,14 @@ def get_settings():
     return {
         'api_key': api_key,
         'model': settings.get('model', 'gpt-4o-mini'),
+        'fast_model': settings.get('fast_model', settings.get('model', 'gpt-4o-mini')),
         'chunk_size': int(settings.get('chunk_size', 3000)),
         'api_key_configured': bool(api_key.strip() and 
                                    api_key not in ['your-openai-api-key-here', 'your-github-pat-here'])
     }
 
 
-def save_settings(api_key=None, model=None, chunk_size=None):
+def save_settings(api_key=None, model=None, fast_model=None, chunk_size=None):
     """Save settings to settings.json file."""
     ensure_settings_file()
     
@@ -114,6 +123,9 @@ def save_settings(api_key=None, model=None, chunk_size=None):
     
     if model is not None:
         settings['model'] = model
+    
+    if fast_model is not None:
+        settings['fast_model'] = fast_model
     
     if chunk_size is not None:
         settings['chunk_size'] = chunk_size
@@ -149,9 +161,94 @@ def get_settings_api():
         'api_key_masked': masked,
         'api_key_configured': settings['api_key_configured'],
         'model': settings['model'],
+        'fast_model': settings['fast_model'],
         'chunk_size': settings['chunk_size'],
         'available_models': AVAILABLE_MODELS
     })
+
+
+def load_prompts():
+    """Load prompts from prompts.json file."""
+    try:
+        with open(PROMPTS_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def get_log_type_prompt(log_type: str) -> str:
+    """Extract the analysis prompt for a specific log type from log_types.md.
+    
+    Parses the markdown looking for a ## heading that matches the detected log type,
+    then extracts the content from the ### Analysis prompt code block.
+    """
+    if not log_type:
+        return ''
+    
+    try:
+        with open(LOG_TYPES_FILE, 'r') as f:
+            content = f.read()
+    except FileNotFoundError:
+        return ''
+    
+    # Normalize the log type for matching
+    log_type_lower = log_type.lower().strip()
+    
+    # Split into sections by ## headings
+    import re
+    sections = re.split(r'^## ', content, flags=re.MULTILINE)
+    
+    for section in sections:
+        if not section.strip():
+            continue
+        # Get the heading (first line)
+        heading = section.split('\n')[0].strip()
+        heading_lower = heading.lower()
+        
+        # Match if the detected log type contains the heading or vice versa
+        if (heading_lower in log_type_lower or 
+            log_type_lower in heading_lower or
+            # Also try matching key words
+            all(word in log_type_lower for word in heading_lower.split() if len(word) > 3)):
+            
+            # Look for ### Analysis prompt section with a code block
+            prompt_match = re.search(
+                r'###\s*Analysis\s*prompt\s*\n+```[^\n]*\n(.*?)```',
+                section, 
+                re.DOTALL | re.IGNORECASE
+            )
+            if prompt_match:
+                return prompt_match.group(1).strip()
+    
+    return ''
+
+
+def save_prompts(prompts):
+    """Save prompts to prompts.json file."""
+    with open(PROMPTS_FILE, 'w') as f:
+        json.dump(prompts, f, indent=4)
+
+
+@app.route('/api/prompts/<prompt_type>', methods=['GET'])
+def get_prompts_api(prompt_type):
+    """Get prompts for a specific analysis type."""
+    prompts = load_prompts()
+    if prompt_type not in prompts:
+        return jsonify({'error': f'Unknown prompt type: {prompt_type}'}), 404
+    return jsonify(prompts[prompt_type])
+
+
+@app.route('/api/prompts/<prompt_type>', methods=['POST'])
+def save_prompts_api(prompt_type):
+    """Save prompts for a specific analysis type."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    prompts = load_prompts()
+    prompts[prompt_type] = data
+    save_prompts(prompts)
+    return jsonify({'status': 'saved', 'prompt_type': prompt_type})
 
 
 @app.route('/api/settings', methods=['POST'])
@@ -169,6 +266,9 @@ def update_settings_api():
         
         if 'model' in data:
             save_settings(model=data['model'])
+        
+        if 'fast_model' in data:
+            save_settings(fast_model=data['fast_model'])
         
         if 'chunk_size' in data:
             chunk_size = int(data['chunk_size'])
@@ -188,6 +288,7 @@ def update_settings_api():
             'api_key_masked': masked,
             'api_key_configured': settings['api_key_configured'],
             'model': settings['model'],
+            'fast_model': settings['fast_model'],
             'chunk_size': settings['chunk_size']
         })
         
@@ -256,6 +357,79 @@ def upload_file():
             'lines': line_count
         })
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/detect-log-type', methods=['POST'])
+def detect_log_type():
+    """Detect the type of log file from its content."""
+    data = request.get_json()
+
+    if not data or 'filepath' not in data:
+        return jsonify({'error': 'No file path provided'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data['filepath'])
+
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    try:
+        settings = get_settings()
+        api_key = settings['api_key']
+        model = settings['fast_model']
+
+        if not api_key or not settings['api_key_configured']:
+            return jsonify({'error': 'GitHub PAT not configured. Please add your token in Settings.'}), 400
+
+        analyzer = LogAnalyzer(api_key=api_key, model=model)
+
+        with open(filepath, 'r', errors='replace') as f:
+            content = f.read()
+
+        result = analyzer.detect_log_type(content)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/fast-summary', methods=['POST'])
+def fast_summary():
+    """Generate a fast AI summary of the uploaded log file."""
+    data = request.get_json()
+
+    if not data or 'filepath' not in data:
+        return jsonify({'error': 'No file path provided'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data['filepath'])
+
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    try:
+        settings = get_settings()
+        api_key = settings['api_key']
+        model = settings['fast_model']
+        chunk_size = settings['chunk_size']
+
+        if not api_key or not settings['api_key_configured']:
+            return jsonify({'error': 'GitHub PAT not configured. Please add your token in Settings.'}), 400
+
+        analyzer = LogAnalyzer(api_key=api_key, model=model, chunk_size=chunk_size)
+
+        with open(filepath, 'r', errors='replace') as f:
+            content = f.read()
+
+        issue_description = data.get('issue_description', '')
+        log_type = data.get('log_type', '')
+        log_type_prompt = get_log_type_prompt(log_type)
+        prompts = load_prompts()
+        fast_prompts = prompts.get('fast_summary', {})
+        results = analyzer.fast_summary(content, issue_description=issue_description, prompt_overrides=fast_prompts, log_type=log_type, log_type_prompt=log_type_prompt)
+
+        return jsonify(results)
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

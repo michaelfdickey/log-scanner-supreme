@@ -64,7 +64,7 @@ class LogAnalyzer:
     # Common log patterns for pre-filtering
     ERROR_PATTERNS = [
         r'\b(error|err|exception|fail|failed|failure|fatal|critical|crash|crashed)\b',
-        r'\b(timeout|timed out|connection refused|connection reset)\b',
+        r'\b(timeout|timed out|timed-out|connection refused|connection reset|conn reset)\b',
         r'\b(denied|unauthorized|forbidden|permission)\b',
         r'\b(null|undefined|NaN|nil)\s*(pointer|reference|exception)?\b',
         r'\b(stack\s*trace|traceback|segfault|segmentation fault)\b',
@@ -73,13 +73,20 @@ class LogAnalyzer:
         r'\[(ERROR|ERR|FATAL|CRITICAL|SEVERE)\]',
         r'HTTP[/ ](4\d\d|5\d\d)',
         r'exit\s*(code|status)?\s*[1-9]\d*',
+        r'\b(dropped|lost)\s*(connection|packet|request)s?\b',
+        r'\b(connection\s*(dropped|lost|closed|aborted|broken))\b',
+        r'\b(ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EPIPE)\b',
+        r'\b(panic|abort|killed|SIGKILL|SIGSEGV|SIGTERM)\b',
     ]
     
     WARNING_PATTERNS = [
         r'\b(warn|warning|deprecated|caution)\b',
         r'\[(WARN|WARNING)\]',
-        r'\b(retry|retrying|attempt)\b',
-        r'\b(slow|latency|delay|lag)\b',
+        r'\b(retry|retrying|attempt|reconnect|reconnecting)\b',
+        r'\b(slow|latency|delay|lag|excessive)\b',
+        r'\b(backoff|back-off|throttl|rate.limit)\b',
+        r'\b(took\s+\d+\.?\d*\s*[sm]s?)\b',
+        r'\b(high\s*(cpu|memory|load|utilization))\b',
     ]
     
     INFO_PATTERNS = [
@@ -105,6 +112,99 @@ class LogAnalyzer:
     def count_tokens(self, text: str) -> int:
         """Count the number of tokens in a text string."""
         return len(self.encoding.encode(text))
+    
+    def detect_log_type(self, content: str) -> dict:
+        """
+        Analyze the first/last 300 lines of a log to determine its type.
+        Returns a dict with log_type and description.
+        """
+        lines = content.split('\n')
+        total_lines = len(lines)
+        
+        sample_lines = []
+        # First 300 lines
+        for i in range(min(300, total_lines)):
+            sample_lines.append(f'L{i + 1}: {lines[i][:300]}')
+        
+        # Add separator if there's a gap
+        if total_lines > 600:
+            sample_lines.append(f'\n... ({total_lines - 600} lines omitted) ...\n')
+        
+        # Last 300 lines
+        start = max(300, total_lines - 300)
+        for i in range(start, total_lines):
+            sample_lines.append(f'L{i + 1}: {lines[i][:300]}')
+        
+        sample_text = '\n'.join(sample_lines)
+        
+        # Cap at reasonable token size
+        max_tokens = 8000
+        if self.count_tokens(sample_text) > max_tokens:
+            mid = len(sample_lines) // 2
+            while self.count_tokens('\n'.join(sample_lines)) > max_tokens and len(sample_lines) > 100:
+                sample_lines.pop(mid)
+                if mid >= len(sample_lines):
+                    mid = len(sample_lines) // 2
+            sample_text = '\n'.join(sample_lines)
+        
+        system_prompt = """You are an expert at identifying log file types. Given a sample of a log file, determine what type of log it is.
+
+Common log types include but are not limited to:
+- GitHub Actions Workflow Run Log
+- GitHub Actions Runner Log
+- ARC (Actions Runner Controller) Controller Log
+- ARC Listener Log
+- ARC API Log
+- Kubernetes Pod Log
+- Docker Container Log
+- Application Server Log (e.g., Apache, Nginx, IIS)
+- System Log (syslog, journald)
+- CI/CD Pipeline Log (Jenkins, CircleCI, etc.)
+- Database Log (MySQL, PostgreSQL, etc.)
+- Cloud Service Log (AWS CloudWatch, Azure Monitor, GCP)
+- Application Debug/Error Log
+- Build Log (Maven, Gradle, npm, etc.)
+- Network/Firewall Log
+- Configuration File (YAML, JSON, INI)
+
+IMPORTANT: Return ONLY a valid JSON object, no markdown code fences or extra text.
+
+Return a JSON object with this structure:
+{
+    "log_type": "The specific type of log",
+    "confidence": "high|medium|low",
+    "description": "A one-sentence description of what this log contains",
+    "key_indicators": ["indicator 1", "indicator 2"]
+}"""
+        
+        user_prompt = f"""Analyze this log file sample ({total_lines} total lines) and determine what type of log it is.
+
+Here are the first and last lines of the file:
+
+```
+{sample_text}
+```
+
+Identify the log type and return as JSON."""
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2
+            )
+            result = extract_json(response.choices[0].message.content)
+            return result
+        except Exception as e:
+            return {
+                'log_type': 'Unknown',
+                'confidence': 'low',
+                'description': f'Could not determine log type: {str(e)[:100]}',
+                'key_indicators': []
+            }
     
     def _preprocess_log(self, content: str) -> dict:
         """
@@ -468,6 +568,187 @@ Please synthesize all this information into a final comprehensive report with ac
                 }
             }
     
+    def fast_summary(self, content: str, issue_description: str = '', prompt_overrides: dict = None, log_type: str = '', log_type_prompt: str = '') -> dict:
+        """
+        Generate a quick summary by sending preprocessed findings + a condensed
+        log sample in a single AI call, skipping chunk-by-chunk analysis.
+        """
+        self.issue_description = issue_description
+
+        # Pre-process for error/warning counts
+        preprocessing = self._preprocess_log(content)
+
+        # Build a condensed view: first/last lines + all error/warning lines with context
+        lines = content.split('\n')
+        total_lines = len(lines)
+
+        important_indices = set()
+        for finding in preprocessing['errors'] + preprocessing['warnings']:
+            line_num = finding['line']
+            for j in range(max(0, line_num - 4), min(total_lines, line_num + 5)):
+                important_indices.add(j)
+
+        # Always include first 300 and last 300 lines for context
+        for i in range(min(300, total_lines)):
+            important_indices.add(i)
+        for i in range(max(0, total_lines - 300), total_lines):
+            important_indices.add(i)
+
+        sorted_indices = sorted(important_indices)
+        condensed_lines = []
+        prev_idx = -2
+        for idx in sorted_indices:
+            if idx > prev_idx + 1:
+                condensed_lines.append(f'... ({idx - prev_idx - 1} lines omitted) ...')
+            condensed_lines.append(f'L{idx + 1}: {lines[idx][:300]}')
+            prev_idx = idx
+
+        condensed_text = '\n'.join(condensed_lines)
+
+        # Truncate to fit within reasonable token budget
+        max_content_tokens = 30000
+        token_count = self.count_tokens(condensed_text)
+        if token_count > max_content_tokens:
+            # Trim from the middle, keeping start and end
+            mid = len(condensed_lines) // 2
+            while self.count_tokens('\n'.join(condensed_lines)) > max_content_tokens and len(condensed_lines) > 100:
+                # Remove lines from the middle
+                condensed_lines.pop(mid)
+                if mid >= len(condensed_lines):
+                    mid = len(condensed_lines) // 2
+            condensed_text = '\n'.join(condensed_lines)
+
+        # Build focus instruction from issue description
+        focus_instruction = ''
+        if issue_description:
+            if prompt_overrides and 'focus_instruction_template' in prompt_overrides:
+                focus_instruction = prompt_overrides['focus_instruction_template'].replace(
+                    '{{issue_description}}', issue_description)
+            else:
+                focus_instruction = f"""
+
+## PRIMARY FOCUS
+The user is specifically investigating: \"{issue_description}\"
+Pay special attention to anything related to this issue, but also report other serious problems."""
+
+        # Build prompts from overrides or defaults
+        log_type_instruction = ''
+        if log_type:
+            log_type_instruction = f'\nThis is a log of type: {log_type}.\n'
+            if log_type_prompt:
+                log_type_instruction += f'\n## LOG-TYPE-SPECIFIC ANALYSIS INSTRUCTIONS\n{log_type_prompt}\n'
+        
+        template_vars = {
+            '{{focus_instruction}}': focus_instruction,
+            '{{log_type_instruction}}': log_type_instruction,
+            '{{log_type_prompt}}': log_type_prompt,
+            '{{total_lines}}': str(total_lines),
+            '{{error_count}}': str(len(preprocessing['errors'])),
+            '{{warning_count}}': str(len(preprocessing['warnings'])),
+            '{{condensed_text}}': condensed_text,
+        }
+
+        if prompt_overrides and 'system_prompt' in prompt_overrides:
+            system_prompt = prompt_overrides['system_prompt']
+            for key, val in template_vars.items():
+                system_prompt = system_prompt.replace(key, val)
+        else:
+            system_prompt = f"""You are an expert log analyst providing a fast summary of a log file.{focus_instruction}
+{log_type_instruction}
+You are given a condensed view of the log including the first and last 300 lines, plus all error/warning lines with ±4 lines of surrounding context.
+
+Analyze the log file for:
+- Errors, exceptions, failures, crashes
+- Warnings and deprecations
+- Timeouts, excessive delays, slow operations
+- Dropped connections, connection resets, refused connections
+- Retries, backoff, throttling
+- Resource issues (memory, CPU, disk)
+
+IMPORTANT: Return ONLY a valid JSON object, no markdown code fences or extra text.
+
+Return a JSON object with this structure:
+{{
+    "executive_summary": "A brief 3-5 sentence overview of the log file's health",
+    "overall_health": "healthy|degraded|critical",
+    "key_findings": [
+        {{
+            "title": "Finding title",
+            "severity": "critical|high|medium|low",
+            "description": "Detailed description",
+            "affected_components": [],
+            "evidence": "Key log lines or patterns observed"
+        }}
+    ],
+    "recommendations": [
+        {{
+            "priority": "immediate|short-term|long-term",
+            "action": "Specific recommended action",
+            "rationale": "Why this action is recommended"
+        }}
+    ],
+    "statistics": {{
+        "total_errors": 0,
+        "total_warnings": 0,
+        "most_frequent_issue": "Description"
+    }}
+}}
+
+Return ONLY the JSON object."""
+
+        if prompt_overrides and 'user_prompt' in prompt_overrides:
+            user_prompt = prompt_overrides['user_prompt']
+            for key, val in template_vars.items():
+                user_prompt = user_prompt.replace(key, val)
+        else:
+            user_prompt = f"""Provide a fast summary of this log file ({total_lines} total lines).
+{log_type_instruction}
+Pre-scan found {len(preprocessing['errors'])} potential error lines and {len(preprocessing['warnings'])} potential warning lines.
+
+Here is the condensed log content (error/warning lines with surrounding context, plus file start/end):
+
+```
+{condensed_text}
+```
+
+Analyze and return your findings as JSON."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3
+            )
+            summary = extract_json(response.choices[0].message.content)
+        except Exception as e:
+            error_count = len(preprocessing['errors'])
+            warning_count = len(preprocessing['warnings'])
+            health = 'critical' if error_count > 10 else ('degraded' if error_count > 0 else 'healthy')
+            summary = {
+                'executive_summary': f'Fast summary generation failed: {str(e)[:100]}. Pre-scan found {error_count} errors and {warning_count} warnings.',
+                'overall_health': health,
+                'key_findings': [],
+                'recommendations': [],
+                'statistics': {
+                    'total_errors': error_count,
+                    'total_warnings': warning_count,
+                    'most_frequent_issue': 'See error details'
+                }
+            }
+
+        return {
+            'preprocessing': {
+                'error_count': len(preprocessing['errors']),
+                'warning_count': len(preprocessing['warnings']),
+                'sample_errors': preprocessing['errors'][:10],
+                'sample_warnings': preprocessing['warnings'][:10]
+            },
+            'final_summary': summary
+        }
+
     def analyze(self, content: str) -> dict:
         """
         Perform complete analysis of a log file.

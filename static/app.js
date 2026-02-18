@@ -27,8 +27,12 @@ class LogScanner {
         this.fileName = document.getElementById('file-name');
         this.fileMeta = document.getElementById('file-meta');
         this.analyzeBtn = document.getElementById('analyze-btn');
+        this.fastSummaryBtn = document.getElementById('fast-summary-btn');
         this.clearBtn = document.getElementById('clear-btn');
         this.issueDescription = document.getElementById('issue-description');
+        this.logTypeDisplay = document.getElementById('log-type-display');
+        this.logTypeText = document.getElementById('log-type-text');
+        this.detectedLogType = '';
         
         this.progressSection = document.getElementById('progress-section');
         this.progressFill = document.getElementById('progress-fill');
@@ -66,9 +70,21 @@ class LogScanner {
         this.testApiKey = document.getElementById('test-api-key');
         this.apiKeyStatus = document.getElementById('api-key-status');
         this.modelSelect = document.getElementById('model-select');
+        this.fastModelSelect = document.getElementById('fast-model-select');
         this.chunkSizeInput = document.getElementById('chunk-size-input');
         this.apiKeyWarning = document.getElementById('api-key-warning');
         this.configureApiBtn = document.getElementById('configure-api-btn');
+        
+        // Prompt editor elements
+        this.promptEditorModal = document.getElementById('prompt-editor-modal');
+        this.editFastPromptsBtn = document.getElementById('edit-fast-prompts-btn');
+        this.promptSystem = document.getElementById('prompt-system');
+        this.promptUser = document.getElementById('prompt-user');
+        this.promptFocus = document.getElementById('prompt-focus');
+        this.promptEditorClose = document.getElementById('prompt-editor-close');
+        this.promptEditorCancel = document.getElementById('prompt-editor-cancel');
+        this.promptEditorSave = document.getElementById('prompt-editor-save');
+        this.promptEditorReset = document.getElementById('prompt-editor-reset');
         
         // Event Listeners
         this.setupEventListeners();
@@ -117,6 +133,7 @@ class LogScanner {
         
         // Buttons
         this.analyzeBtn.addEventListener('click', () => this.previewChunks());
+        this.fastSummaryBtn.addEventListener('click', () => this.runFastSummary());
         this.analyzeAllBtn.addEventListener('click', () => this.startAnalysisAll());
         this.generateSummaryBtn.addEventListener('click', () => this.generateSummary());
         
@@ -138,6 +155,14 @@ class LogScanner {
         this.configureApiBtn.addEventListener('click', () => this.openSettings());
         this.clearBtn.addEventListener('click', () => this.clearFile());
         
+        // Prompt editor event listeners
+        this.editFastPromptsBtn.addEventListener('click', () => this.openPromptEditor());
+        this.promptEditorClose.addEventListener('click', () => this.closePromptEditor());
+        this.promptEditorCancel.addEventListener('click', () => this.closePromptEditor());
+        this.promptEditorSave.addEventListener('click', () => this.savePrompts());
+        this.promptEditorReset.addEventListener('click', () => this.resetPrompts());
+        this.promptEditorModal.querySelector('.modal-overlay').addEventListener('click', () => this.closePromptEditor());
+        
         // Filter buttons
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.filterIssues(e.target.dataset.filter));
@@ -145,13 +170,31 @@ class LogScanner {
         
         // Close modal on Escape key
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && !this.settingsModal.classList.contains('hidden')) {
-                this.closeSettings();
+            if (e.key === 'Escape') {
+                if (!this.promptEditorModal.classList.contains('hidden')) {
+                    this.closePromptEditor();
+                } else if (!this.settingsModal.classList.contains('hidden')) {
+                    this.closeSettings();
+                }
             }
         });
     }
     
     // ==================== Settings Methods ====================
+    
+    formatModelLabel(model) {
+        let label = model.name;
+        if (model.max_context_tokens) {
+            const ctxK = Math.round(model.max_context_tokens / 1000);
+            label += ` [${ctxK}k ctx`;
+            if (model.max_output_tokens) {
+                const outK = Math.round(model.max_output_tokens / 1000);
+                label += ` / ${outK}k out`;
+            }
+            label += ']';
+        }
+        return label;
+    }
     
     async loadSettings() {
         try {
@@ -160,15 +203,24 @@ class LogScanner {
             
             this.settings = data;
             
-            // Populate model select
+            // Populate model selects
             this.modelSelect.innerHTML = '';
+            this.fastModelSelect.innerHTML = '';
             if (data.available_models) {
                 data.available_models.forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = model.id;
-                    option.textContent = model.name;
-                    option.selected = model.id === data.model;
-                    this.modelSelect.appendChild(option);
+                    const label = this.formatModelLabel(model);
+                    
+                    const option1 = document.createElement('option');
+                    option1.value = model.id;
+                    option1.textContent = label;
+                    option1.selected = model.id === data.model;
+                    this.modelSelect.appendChild(option1);
+                    
+                    const option2 = document.createElement('option');
+                    option2.value = model.id;
+                    option2.textContent = label;
+                    option2.selected = model.id === data.fast_model;
+                    this.fastModelSelect.appendChild(option2);
                 });
             }
             
@@ -206,9 +258,98 @@ class LogScanner {
         this.toggleApiKey.textContent = '👁️';
     }
     
+    // ==================== Prompt Editor Methods ====================
+    
+    async openPromptEditor() {
+        try {
+            const response = await fetch('/api/prompts/fast_summary');
+            if (!response.ok) throw new Error('Failed to load prompts');
+            const data = await response.json();
+            
+            this.promptSystem.value = data.system_prompt || '';
+            this.promptUser.value = data.user_prompt || '';
+            this.promptFocus.value = data.focus_instruction_template || '';
+            
+            this.promptEditorModal.classList.remove('hidden');
+        } catch (error) {
+            console.error('Failed to load prompts:', error);
+            alert('Failed to load prompts: ' + error.message);
+        }
+    }
+    
+    closePromptEditor() {
+        this.promptEditorModal.classList.add('hidden');
+    }
+    
+    async savePrompts() {
+        const payload = {
+            system_prompt: this.promptSystem.value,
+            user_prompt: this.promptUser.value,
+            focus_instruction_template: this.promptFocus.value
+        };
+        
+        try {
+            this.promptEditorSave.disabled = true;
+            this.promptEditorSave.textContent = 'Saving...';
+            
+            const response = await fetch('/api/prompts/fast_summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            const data = await response.json();
+            if (data.error) {
+                alert('Error saving prompts: ' + data.error);
+                return;
+            }
+            
+            this.closePromptEditor();
+        } catch (error) {
+            alert('Failed to save prompts: ' + error.message);
+        } finally {
+            this.promptEditorSave.disabled = false;
+            this.promptEditorSave.textContent = 'Save Prompts';
+        }
+    }
+    
+    async resetPrompts() {
+        if (!confirm('Reset all Fast Summary prompts to defaults? This cannot be undone.')) return;
+        
+        try {
+            const response = await fetch('/api/prompts/fast_summary');
+            if (!response.ok) throw new Error('Failed to fetch current prompts');
+            
+            // Fetch the default prompts from the original file
+            // We'll re-fetch and the backend will have defaults
+            const defaultPrompts = {
+                system_prompt: "You are an expert log analyst providing a fast summary of a log file.{{focus_instruction}}\n\nYou are given a condensed view of the log including the first and last 300 lines, plus all error/warning lines with ±4 lines of surrounding context.\n\nAnalyze the log file for:\n- Errors, exceptions, failures, crashes\n- Warnings and deprecations\n- Timeouts, excessive delays, slow operations\n- Dropped connections, connection resets, refused connections\n- Retries, backoff, throttling\n- Resource issues (memory, CPU, disk)\n\nIMPORTANT: Return ONLY a valid JSON object, no markdown code fences or extra text.\n\nReturn a JSON object with this structure:\n{\n    \"executive_summary\": \"A brief 3-5 sentence overview of the log file's health\",\n    \"overall_health\": \"healthy|degraded|critical\",\n    \"key_findings\": [\n        {\n            \"title\": \"Finding title\",\n            \"severity\": \"critical|high|medium|low\",\n            \"description\": \"Detailed description\",\n            \"affected_components\": [],\n            \"evidence\": \"Key log lines or patterns observed\"\n        }\n    ],\n    \"recommendations\": [\n        {\n            \"priority\": \"immediate|short-term|long-term\",\n            \"action\": \"Specific recommended action\",\n            \"rationale\": \"Why this action is recommended\"\n        }\n    ],\n    \"statistics\": {\n        \"total_errors\": 0,\n        \"total_warnings\": 0,\n        \"most_frequent_issue\": \"Description\"\n    }\n}\n\nReturn ONLY the JSON object.",
+                user_prompt: "Provide a fast summary of this log file ({{total_lines}} total lines).\n\nPre-scan found {{error_count}} potential error lines and {{warning_count}} potential warning lines.\n\nHere is the condensed log content (error/warning lines with surrounding context, plus file start/end):\n\n```\n{{condensed_text}}\n```\n\nAnalyze and return your findings as JSON.",
+                focus_instruction_template: "\n\n## PRIMARY FOCUS\nThe user is specifically investigating: \"{{issue_description}}\"\nPay special attention to anything related to this issue, but also report other serious problems."
+            };
+            
+            const saveResponse = await fetch('/api/prompts/fast_summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(defaultPrompts)
+            });
+            
+            if (saveResponse.ok) {
+                this.promptSystem.value = defaultPrompts.system_prompt;
+                this.promptUser.value = defaultPrompts.user_prompt;
+                this.promptFocus.value = defaultPrompts.focus_instruction_template;
+            }
+        } catch (error) {
+            alert('Failed to reset prompts: ' + error.message);
+        }
+    }
+    
+    // ==================== Save Settings ====================
+
     async saveSettings() {
         const apiKey = this.apiKeyInput.value.trim();
         const model = this.modelSelect.value;
+        const fastModel = this.fastModelSelect.value;
         const chunkSize = parseInt(this.chunkSizeInput.value);
         
         // Validate chunk size
@@ -219,6 +360,7 @@ class LogScanner {
         
         const payload = {
             model: model,
+            fast_model: fastModel,
             chunk_size: chunkSize
         };
         
@@ -350,6 +492,9 @@ class LogScanner {
             this.filePath = data.filepath;
             this.showFileInfo(data);
             
+            // Auto-detect log type
+            this.detectLogType();
+            
         } catch (error) {
             alert('Failed to upload file: ' + error.message);
         }
@@ -372,6 +517,7 @@ class LogScanner {
     clearFile() {
         this.uploadedFile = null;
         this.filePath = null;
+        this.detectedLogType = '';
         this.chunkResults = {};
         this.chunkMeta = [];
         this.allIssues = [];
@@ -383,6 +529,13 @@ class LogScanner {
         this.uploadArea.classList.remove('hidden');
         this.fileInfo.classList.add('hidden');
         this.fileInput.value = '';
+        
+        // Hide log type display
+        this.logTypeDisplay.classList.add('hidden');
+        this.logTypeText.textContent = '';
+        
+        // Reset button text
+        this.fastSummaryBtn.textContent = '⚡ Fast Summary';
         
         // Hide all result sections
         this.progressSection.classList.add('hidden');
@@ -400,6 +553,123 @@ class LogScanner {
         this.lastQuery = '';
         
         if (this.issueDescription) this.issueDescription.value = '';
+    }
+    
+    // ==================== Log Type Detection ====================
+    
+    async detectLogType() {
+        if (!this.filePath || !this.settings.api_key_configured) return;
+        
+        // Show detecting state
+        this.logTypeDisplay.classList.remove('hidden');
+        this.logTypeDisplay.classList.add('detecting');
+        this.logTypeText.textContent = '🔍 Detecting log type...';
+        
+        try {
+            const response = await fetch('/api/detect-log-type', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filepath: this.filePath })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                this.logTypeDisplay.classList.add('hidden');
+                console.error('Log type detection failed:', data.error);
+                return;
+            }
+            
+            this.detectedLogType = data.log_type || 'Unknown';
+            
+            this.logTypeDisplay.classList.remove('detecting');
+            this.logTypeText.textContent = `📋 This appears to be a ${this.detectedLogType}`;
+            if (data.description) {
+                this.logTypeText.textContent += ` — ${data.description}`;
+            }
+            
+            // Update button text
+            this.fastSummaryBtn.textContent = '⚡ Continue Fast Summary';
+            
+        } catch (error) {
+            this.logTypeDisplay.classList.add('hidden');
+            console.error('Log type detection failed:', error);
+        }
+    }
+    
+    // ==================== Fast Summary ====================
+
+    async runFastSummary() {
+        if (!this.filePath) {
+            alert('No file uploaded');
+            return;
+        }
+        
+        if (!this.settings.api_key_configured) {
+            alert('Please configure your GitHub Personal Access Token in Settings before analyzing.');
+            this.openSettings();
+            return;
+        }
+        
+        this.fastSummaryBtn.disabled = true;
+        this.analyzeBtn.disabled = true;
+        this.fastSummaryBtn.textContent = '⏳ Summarizing...';
+        
+        // Show progress
+        this.progressSection.classList.remove('hidden');
+        this.progressFill.style.width = '30%';
+        this.progressStatus.textContent = 'Generating fast summary...';
+        this.chunkProgress.innerHTML = '';
+        
+        // Hide previous results
+        this.summarySection.classList.add('hidden');
+        this.issuesSection.classList.add('hidden');
+        this.chunkSelectionSection.classList.add('hidden');
+        this.preprocessingSection.classList.add('hidden');
+        
+        try {
+            const issueDesc = this.issueDescription ? this.issueDescription.value.trim() : '';
+            
+            const response = await fetch('/api/fast-summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filepath: this.filePath,
+                    issue_description: issueDesc,
+                    log_type: this.detectedLogType
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            
+            this.progressFill.style.width = '100%';
+            this.progressStatus.textContent = 'Fast summary complete!';
+            
+            // Show final summary
+            if (data.final_summary) {
+                this.finalSummary = data.final_summary;
+                this.showFinalSummary(data.final_summary);
+            }
+            
+            // Show chat section so user can ask follow-up questions
+            this.showChatSection();
+            
+            setTimeout(() => {
+                this.progressSection.classList.add('hidden');
+            }, 1500);
+            
+        } catch (error) {
+            alert('Fast summary failed: ' + error.message);
+        } finally {
+            this.fastSummaryBtn.disabled = false;
+            this.analyzeBtn.disabled = false;
+            this.fastSummaryBtn.textContent = this.detectedLogType ? '⚡ Continue Fast Summary' : '⚡ Fast Summary';
+        }
     }
     
     async previewChunks() {
@@ -954,6 +1224,43 @@ class LogScanner {
     
     showFinalSummary(data) {
         this.summarySection.classList.remove('hidden');
+        
+        // Scaling Status (ARC controller logs)
+        const scalingStatusEl = document.getElementById('scaling-status');
+        if (data.scaling_status) {
+            const ss = data.scaling_status;
+            scalingStatusEl.classList.remove('hidden');
+            
+            let scaleSetsHtml = '';
+            if (ss.scale_sets && ss.scale_sets.length > 0) {
+                scaleSetsHtml = '<ul class="scaling-details">';
+                ss.scale_sets.forEach(s => {
+                    const upIcon = s.scales_up ? '✅' : '❌';
+                    const downIcon = s.scales_down ? '✅' : '❌';
+                    scaleSetsHtml += `<li><strong>${s.name}</strong>: ${s.min_observed} → ${s.max_observed} runners (scale up: ${upIcon} scale down: ${downIcon})</li>`;
+                });
+                scaleSetsHtml += '</ul>';
+            }
+            
+            if (ss.is_scaling) {
+                scalingStatusEl.className = 'scaling-status-banner scaling-healthy';
+                scalingStatusEl.innerHTML = `
+                    <div class="scaling-header">✅ ARC Scaling: Working</div>
+                    <p>${ss.summary || 'Scale sets are scaling up and down successfully.'}</p>
+                    ${scaleSetsHtml}
+                    <p class="scaling-note">ARC is functioning correctly. Any remaining issues may be in the customer's Kubernetes environment.</p>
+                `;
+            } else {
+                scalingStatusEl.className = 'scaling-status-banner scaling-unhealthy';
+                scalingStatusEl.innerHTML = `
+                    <div class="scaling-header">⚠️ ARC Scaling: Issues Detected</div>
+                    <p>${ss.summary || 'No clear evidence of scale sets scaling up and down.'}</p>
+                    ${scaleSetsHtml}
+                `;
+            }
+        } else {
+            scalingStatusEl.classList.add('hidden');
+        }
         
         // Executive Summary
         const health = data.overall_health || 'unknown';

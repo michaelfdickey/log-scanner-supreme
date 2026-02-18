@@ -131,6 +131,10 @@ header h1 {
     animation: modalSlideIn 0.2s ease;
 }
 
+.modal-content.modal-wide {
+    max-width: 800px;
+}
+
 @keyframes modalSlideIn {
     from {
         opacity: 0;
@@ -236,6 +240,76 @@ header h1 {
     font-size: 0.8rem;
     color: var(--text-muted);
     margin-top: 0.5rem;
+}
+
+.settings-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.settings-row select {
+    flex: 1;
+}
+
+.prompt-textarea {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--bg-color);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 80px;
+}
+
+.prompt-textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.prompt-variables-info {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.prompt-variables-info summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--primary-color);
+}
+
+.prompt-variables-info ul {
+    margin: 0.5rem 0 0 1rem;
+    padding: 0;
+}
+
+.prompt-variables-info li {
+    margin-bottom: 0.25rem;
+}
+
+.prompt-variables-info code {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
+.btn-warning {
+    background: #f59e0b;
+    color: #000;
+    border: none;
+}
+
+.btn-warning:hover {
+    background: #d97706;
 }
 
 .api-key-status {
@@ -359,6 +433,22 @@ header h1 {
     background: var(--text-muted);
 }
 
+.btn-outline {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px dashed var(--text-muted);
+}
+
+.btn-outline:hover:not(:disabled) {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* File Info */
 .file-info {
     display: flex;
@@ -413,6 +503,21 @@ header h1 {
 
 .issue-description-input::placeholder {
     color: var(--text-muted);
+}
+
+.log-type-display {
+    margin: 0.75rem 0;
+    padding: 0.6rem 1rem;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.log-type-display.detecting {
+    color: var(--text-muted);
+    font-style: italic;
 }
 
 .file-icon {
@@ -704,6 +809,43 @@ header h1 {
 
 .summary-subsection ul li {
     margin-bottom: 0.25rem;
+}
+
+/* Scaling Status Banner (ARC Controller Logs) */
+.scaling-status-banner {
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    border-width: 2px;
+    border-style: solid;
+}
+.scaling-status-banner.scaling-healthy {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: var(--success-color);
+}
+.scaling-status-banner.scaling-unhealthy {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: var(--warning-color);
+}
+.scaling-header {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+.scaling-details {
+    list-style: none;
+    padding-left: 0;
+    margin: 0.75rem 0;
+}
+.scaling-details li {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.scaling-note {
+    font-size: 0.85rem;
+    opacity: 0.8;
+    margin-top: 0.5rem;
+    font-style: italic;
 }
 
 /* Executive Summary */

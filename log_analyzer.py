@@ -746,7 +746,8 @@ Analyze and return your findings as JSON."""
                 'sample_errors': preprocessing['errors'][:10],
                 'sample_warnings': preprocessing['warnings'][:10]
             },
-            'final_summary': summary
+            'final_summary': summary,
+            'condensed_log': condensed_text
         }
 
     def analyze(self, content: str) -> dict:

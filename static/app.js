@@ -663,6 +663,11 @@ class LogScanner {
                 this.showFinalSummary(data.final_summary);
             }
             
+            // Store condensed log for chat context
+            if (data.condensed_log) {
+                this.shadowContext = `### Raw Log Content (condensed view — first/last 300 lines + error/warning lines with context):\n\`\`\`\n${data.condensed_log}\n\`\`\``;
+            }
+            
             // Show chat section so user can ask follow-up questions
             this.showChatSection();
             
@@ -1561,48 +1566,22 @@ class LogScanner {
         return `### Raw Log Lines from Chunk ${chunk.chunk_num} (Lines ${chunk.lines}):\n\`\`\`\n${chunk.raw_excerpt}\n\`\`\``;
     }
     
-    async sendChatMessage(retryWithRawContent = false, chunksToFetch = null) {
-        const query = retryWithRawContent ? this.lastQuery : this.chatInput.value.trim();
+    async sendChatMessage() {
+        const query = this.chatInput.value.trim();
         if (!query) return;
-        
-        // Store query for potential retry
-        this.lastQuery = query;
         
         // Disable input while sending
         this.chatInput.disabled = true;
         this.chatSend.disabled = true;
         
-        // Add user message to chat (only on first attempt)
-        if (!retryWithRawContent) {
-            this.addChatMessage(query, 'user');
-            this.chatInput.value = '';
-        }
+        // Remove any existing suggestion buttons
+        this.removeSuggestions();
+        
+        this.addChatMessage(query, 'user');
+        this.chatInput.value = '';
         
         // Show typing indicator
         const typingId = this.showTypingIndicator();
-        
-        // If retrying, add raw content to shadow context
-        if (retryWithRawContent) {
-            this.updateTypingIndicator(typingId, 'Fetching additional log content...');
-            
-            if (chunksToFetch && chunksToFetch.length > 0) {
-                chunksToFetch.forEach(chunkNum => {
-                    const rawExcerpt = this.getRawExcerptForChunk(chunkNum);
-                    if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
-                        this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
-                    }
-                });
-            } else {
-                // Default: use expanded chunk or first analyzed chunk
-                const defaultChunk = this.expandedChunk || Object.keys(this.chunkResults).map(Number).sort((a,b) => a-b)[0];
-                if (defaultChunk) {
-                    const rawExcerpt = this.getRawExcerptForChunk(defaultChunk);
-                    if (rawExcerpt && !this.shadowContext.includes(rawExcerpt)) {
-                        this.shadowContext = (this.shadowContext ? this.shadowContext + '\n\n' : '') + rawExcerpt;
-                    }
-                }
-            }
-        }
         
         try {
             const response = await fetch('/api/chat', {
@@ -1612,6 +1591,7 @@ class LogScanner {
                 },
                 body: JSON.stringify({
                     query: query,
+                    filepath: this.filePath || '',
                     chunk_context: this.chunkContextArea ? this.chunkContextArea.value : '',
                     full_context: this.fullContextArea ? this.fullContextArea.value : '',
                     shadow_context: this.shadowContext || ''
@@ -1620,24 +1600,23 @@ class LogScanner {
             
             const data = await response.json();
             
-            // Check if we need to retry with raw content
-            if (data.needs_raw_content && !retryWithRawContent) {
-                // Remove current typing indicator
-                this.removeTypingIndicator(typingId);
-                // Parse which chunks are requested (if any)
-                const chunksRequested = data.chunks_requested || [];
-                // Retry with raw content
-                await this.sendChatMessage(true, chunksRequested);
-                return;
-            }
-            
             // Remove typing indicator
             this.removeTypingIndicator(typingId);
             
             if (data.error) {
                 this.addChatMessage(`Error: ${data.error}`, 'assistant error');
             } else {
+                // Show retrieval steps if any occurred
+                if (data.retrieval_steps && data.retrieval_steps.length > 0) {
+                    this.addChatMessage('🔍 ' + data.retrieval_steps.join(' → '), 'system-info');
+                }
+                
                 this.addChatMessage(data.response, 'assistant');
+                
+                // Show suggested follow-up buttons
+                if (data.suggestions && data.suggestions.length > 0) {
+                    this.showSuggestions(data.suggestions);
+                }
             }
             
         } catch (error) {
@@ -1679,6 +1658,32 @@ class LogScanner {
         
         // Scroll to bottom
         this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    }
+    
+    showSuggestions(suggestions) {
+        this.removeSuggestions();
+        const container = document.createElement('div');
+        container.className = 'chat-suggestions';
+        container.id = 'chat-suggestions';
+        
+        suggestions.forEach(text => {
+            const btn = document.createElement('button');
+            btn.className = 'chat-suggestion-btn';
+            btn.textContent = text;
+            btn.addEventListener('click', () => {
+                this.chatInput.value = text;
+                this.sendChatMessage();
+            });
+            container.appendChild(btn);
+        });
+        
+        this.chatMessages.appendChild(container);
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    }
+    
+    removeSuggestions() {
+        const existing = document.getElementById('chat-suggestions');
+        if (existing) existing.remove();
     }
     
     formatChatResponse(text) {

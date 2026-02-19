@@ -654,12 +654,13 @@ def analyze_file_stream():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Handle chat queries about the log analysis"""
+    """Handle chat queries about the log analysis with automatic log retrieval."""
     data = request.json
     user_query = data.get('query', '')
     chunk_context = data.get('chunk_context', '')
     full_context = data.get('full_context', '')
     shadow_context = data.get('shadow_context', '')
+    filepath_key = data.get('filepath', '')
     
     if not user_query:
         return jsonify({'error': 'No query provided'}), 400
@@ -671,32 +672,48 @@ def chat():
     if not api_key or not settings['api_key_configured']:
         return jsonify({'error': 'GitHub PAT not configured'}), 400
     
+    # Load the log file if filepath provided (for dynamic retrieval)
+    log_lines = None
+    if filepath_key:
+        log_filepath = os.path.join(app.config['UPLOAD_FOLDER'], filepath_key)
+        if os.path.exists(log_filepath):
+            with open(log_filepath, 'r', errors='replace') as f:
+                log_lines = f.readlines()
+    
     try:
         from copilot_client import CopilotClient
         client = CopilotClient(api_key=api_key)
         
-        # Build the system prompt with context expansion instructions
-        system_prompt = """You are a helpful log analysis assistant. You have access to context from a log file analysis.
-Your job is to answer questions about the log file, help troubleshoot issues found, and provide insights.
+        system_prompt = """You are a helpful log analysis assistant. You have access to context from a log file analysis AND the ability to fetch specific lines or search the actual log file.
 
-When the user asks for examples of errors, specific log entries, actual error messages, or wants to trace something across chunks:
-1. First look in the "Raw Log Content" section if available - this contains actual log lines
-2. If you find what they're asking for, quote the relevant lines directly
-3. If you cannot find the specific information in the provided context, respond with EXACTLY this format:
-   [NEED_CHUNKS:1,2,3] I need to see the raw log content from chunk(s) X to answer this question.
-   
-   Replace the numbers with the actual chunk numbers you need. For example:
-   - [NEED_CHUNKS:3] - if you need chunk 3
-   - [NEED_CHUNKS:2,3,4] - if you need chunks 2, 3, and 4
-   - [NEED_CHUNKS:1] - if you need chunk 1
-   
-   Look at the "Chunk-by-Chunk Summary" in the Full Analysis Context to determine which chunks likely contain the information needed.
-   
-The system will automatically fetch the raw log content from those chunks and retry your query.
+When answering questions:
+1. First check the "Raw Log Content" and "Analysis Context" sections for relevant information
+2. If you find what the user is asking for, answer directly with specific line references
+3. If you need to see specific log lines that aren't in the current context, use these commands:
 
-Be specific and cite relevant parts of the context when answering.
-Format your responses clearly with markdown when appropriate.
-When showing log lines, use code blocks for readability."""
+**To fetch specific line ranges:**
+[FETCH_LINES:100-200]
+This retrieves lines 100 through 200 from the log file.
+
+**To search for a pattern in the log:**
+[SEARCH_LOG:error pattern here]
+This searches the entire log file for lines matching the pattern (case-insensitive) and returns matching lines with surrounding context.
+
+You can use multiple fetch/search commands in one response. The system will automatically retrieve the requested content and re-ask your question with the additional context.
+
+RULES:
+- Use FETCH_LINES when you know approximately which lines to look at (from line numbers mentioned in the analysis)
+- Use SEARCH_LOG when you need to find specific text, URLs, error messages, or patterns
+- Keep line ranges reasonable (max 200 lines per fetch) to avoid overwhelming context
+- When you have enough information to answer, provide a thorough answer WITHOUT any fetch/search commands
+- Always cite specific line numbers when quoting log content
+- Use code blocks when showing log lines
+
+When analyzing timing or delays:
+- Look for timestamps and calculate time differences
+- Identify the longest gaps between consecutive entries
+
+IMPORTANT: At the end of EVERY final answer (one without FETCH/SEARCH commands), include a section starting with exactly "---SUGGESTIONS---" followed by 2-4 brief suggested follow-up questions, one per line. No bullets or numbering."""
 
         # Build context message
         context_message = ""
@@ -707,44 +724,126 @@ When showing log lines, use code blocks for readability."""
         if full_context:
             context_message += f"## Full Analysis Context\n{full_context}\n\n"
         
+        has_log_file = log_lines is not None
+        if has_log_file:
+            context_message += f"\n(Log file is available with {len(log_lines)} total lines. Use [FETCH_LINES:start-end] or [SEARCH_LOG:pattern] to retrieve specific content.)\n"
+        
         messages = [
             {"role": "system", "content": system_prompt},
         ]
         
         if context_message:
             messages.append({"role": "user", "content": f"Here is the context from the log analysis:\n\n{context_message}"})
-            messages.append({"role": "assistant", "content": "I've reviewed the log analysis context. I'm ready to answer questions about the log file and help troubleshoot any issues found. I can see both summaries and raw log content when available."})
+            messages.append({"role": "assistant", "content": "I've reviewed the log analysis context. I'm ready to answer questions about the log file. I can fetch specific line ranges or search for patterns in the log when needed."})
         
         messages.append({"role": "user", "content": user_query})
         
-        # Call the Copilot API
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=2000
-        )
-        
-        assistant_response = response.choices[0].message.content
-        
-        # Check if specific chunks are needed - parse [NEED_CHUNKS:1,2,3] format
+        # Retrieval loop — up to 3 rounds of fetching
         import re
-        chunks_match = re.search(r'\[NEED_CHUNKS?:([0-9,\s]+)\]', assistant_response)
-        needs_raw_content = chunks_match is not None
-        chunks_requested = []
+        max_retrieval_rounds = 3
+        retrieval_log = []  # Track what was fetched for the frontend
         
-        if chunks_match:
-            # Parse the chunk numbers
-            chunk_str = chunks_match.group(1)
-            chunks_requested = [int(c.strip()) for c in chunk_str.split(',') if c.strip().isdigit()]
-            # Clean the response
-            clean_response = re.sub(r'\[NEED_CHUNKS?:[0-9,\s]+\]\s*', '', assistant_response).strip()
-        else:
-            clean_response = assistant_response
+        for round_num in range(max_retrieval_rounds + 1):
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=3000
+            )
+            
+            assistant_response = response.choices[0].message.content
+            
+            # Check for FETCH_LINES commands
+            fetch_matches = re.findall(r'\[FETCH_LINES:(\d+)-(\d+)\]', assistant_response)
+            # Check for SEARCH_LOG commands
+            search_matches = re.findall(r'\[SEARCH_LOG:([^\]]+)\]', assistant_response)
+            
+            if not fetch_matches and not search_matches:
+                # No more retrieval needed — this is the final answer
+                break
+            
+            if round_num >= max_retrieval_rounds:
+                # Max rounds reached, strip commands and return what we have
+                assistant_response = re.sub(r'\[FETCH_LINES:\d+-\d+\]\s*', '', assistant_response)
+                assistant_response = re.sub(r'\[SEARCH_LOG:[^\]]+\]\s*', '', assistant_response)
+                break
+            
+            if not has_log_file:
+                # No file available, strip commands and return
+                assistant_response = re.sub(r'\[FETCH_LINES:\d+-\d+\]\s*', '', assistant_response)
+                assistant_response = re.sub(r'\[SEARCH_LOG:[^\]]+\]\s*', '', assistant_response)
+                break
+            
+            # Execute retrievals
+            retrieved_content = []
+            
+            for start_str, end_str in fetch_matches:
+                start = max(1, int(start_str))
+                end = min(len(log_lines), int(end_str))
+                # Cap at 200 lines per fetch
+                if end - start > 200:
+                    end = start + 200
+                fetched = []
+                for i in range(start - 1, end):
+                    fetched.append(f"L{i+1}: {log_lines[i].rstrip()}")
+                retrieved_content.append(f"### Lines {start}-{end}:\n```\n" + '\n'.join(fetched) + "\n```")
+                retrieval_log.append(f"Fetched lines {start}-{end}")
+            
+            for pattern in search_matches:
+                # Search the log file for the pattern
+                try:
+                    search_re = re.compile(re.escape(pattern), re.IGNORECASE)
+                except re.error:
+                    search_re = re.compile(re.escape(pattern), re.IGNORECASE)
+                
+                matches_found = []
+                for i, line in enumerate(log_lines):
+                    if search_re.search(line):
+                        # Include ±3 lines of context
+                        ctx_start = max(0, i - 3)
+                        ctx_end = min(len(log_lines), i + 4)
+                        block = []
+                        for j in range(ctx_start, ctx_end):
+                            marker = " >> " if j == i else "    "
+                            block.append(f"{marker}L{j+1}: {log_lines[j].rstrip()}")
+                        matches_found.append('\n'.join(block))
+                        
+                        if len(matches_found) >= 15:  # Cap at 15 matches
+                            break
+                
+                if matches_found:
+                    retrieved_content.append(
+                        f"### Search results for \"{pattern}\" ({len(matches_found)} matches):\n```\n" + 
+                        '\n---\n'.join(matches_found) + "\n```"
+                    )
+                else:
+                    retrieved_content.append(f"### Search for \"{pattern}\": No matches found in the log file.")
+                retrieval_log.append(f"Searched for \"{pattern}\"")
+            
+            # Add retrieved content to messages and loop
+            retrieval_text = "\n\n".join(retrieved_content)
+            
+            # Add the assistant's request and the retrieved data to the conversation
+            messages.append({"role": "assistant", "content": assistant_response})
+            messages.append({"role": "user", "content": f"Here is the log content you requested:\n\n{retrieval_text}\n\nNow please answer the original question using this additional context. If you need more data, you can request it. Otherwise, provide your complete answer."})
+        
+        # Extract suggested follow-up questions
+        suggestions = []
+        clean_response = assistant_response
+        if '---SUGGESTIONS---' in assistant_response:
+            parts = assistant_response.split('---SUGGESTIONS---', 1)
+            clean_response = parts[0].strip()
+            suggestion_lines = parts[1].strip().split('\n')
+            suggestions = [s.strip().strip('-').strip('•').strip('"').strip() for s in suggestion_lines if s.strip()]
+            suggestions = suggestions[:4]
+        
+        # Clean any remaining fetch/search commands from the response
+        clean_response = re.sub(r'\[FETCH_LINES:\d+-\d+\]\s*', '', clean_response)
+        clean_response = re.sub(r'\[SEARCH_LOG:[^\]]+\]\s*', '', clean_response)
         
         return jsonify({
             'response': clean_response,
-            'needs_raw_content': needs_raw_content,
-            'chunks_requested': chunks_requested
+            'suggestions': suggestions,
+            'retrieval_steps': retrieval_log
         })
         
     except Exception as e:

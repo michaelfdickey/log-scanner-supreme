@@ -24,7 +24,6 @@ app.secret_key = os.urandom(24)
 # Configuration
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'log', 'txt', 'json', 'xml', 'csv', 'out', 'err'}
-MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max file size
 MODELS_FILE = os.path.join(BASE_DIR, 'copilot-api', 'available_models.json')
 PROMPTS_FILE = os.path.join(BASE_DIR, 'copilot-api', 'prompts.json')
 LOG_TYPES_FILE = os.path.join(BASE_DIR, 'processes', 'log_types.md')
@@ -63,7 +62,6 @@ def load_available_models():
 AVAILABLE_MODELS = load_available_models()
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 # Ensure upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -851,12 +849,17 @@ IMPORTANT: At the end of EVERY final answer (one without FETCH/SEARCH commands),
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Log Scanner Supreme')
+    parser.add_argument('--port', type=int, default=5000, help='Port to run the server on (default: 5000)')
+    args = parser.parse_args()
+
     print("\n" + "="*60)
     print("  Log Scanner Supreme")
     print("  Powered by GitHub Copilot API")
     print("="*60)
-    print("\n  Starting server at: http://localhost:5000")
+    print(f"\n  Starting server at: http://localhost:{args.port}")
     print("\n  Configure your GitHub PAT in Settings (click ⚙️)")
     print("="*60 + "\n")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=args.port)

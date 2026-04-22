@@ -465,11 +465,6 @@ class LogScanner {
             return;
         }
         
-        if (file.size > 50 * 1024 * 1024) {
-            alert('File size exceeds 50MB limit.');
-            return;
-        }
-        
         this.uploadedFile = file;
         
         // Upload file

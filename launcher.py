@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
 Log Scanner Supreme - Launcher Script
+Compatible with Local Hoster desktop app.
 
 This script:
-1. Kills any existing instance of the app running on port 5000
-2. Activates the virtual environment
-3. Launches the application
+1. Parses -p (frontend port) and -b (backend port) flags
+2. Kills any existing instance of the app running on the target port
+3. Activates the virtual environment
+4. Launches the application
+
+Usage:
+    python launcher.py -p 5001 -b 8001
 """
 
 import os
@@ -14,12 +19,13 @@ import subprocess
 import signal
 import platform
 import time
+import argparse
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, 'venv')
 APP_FILE = os.path.join(SCRIPT_DIR, 'app.py')
-PORT = 5000
+DEFAULT_PORT = 5000
 
 
 def get_python_executable():
@@ -41,9 +47,9 @@ def get_python_executable():
     return python_path
 
 
-def kill_existing_process():
+def kill_existing_process(port):
     """Kill any process running on the target port."""
-    print(f"🔍 Checking for existing processes on port {PORT}...")
+    print(f"🔍 Checking for existing processes on port {port}...")
     
     system = platform.system()
     
@@ -51,7 +57,7 @@ def kill_existing_process():
         if system == 'Darwin' or system == 'Linux':
             # Use lsof to find process on port
             result = subprocess.run(
-                ['lsof', '-ti', f':{PORT}'],
+                ['lsof', '-ti', f':{port}'],
                 capture_output=True,
                 text=True
             )
@@ -71,7 +77,7 @@ def kill_existing_process():
                 
                 # Force kill any that are still alive
                 result2 = subprocess.run(
-                    ['lsof', '-ti', f':{PORT}'],
+                    ['lsof', '-ti', f':{port}'],
                     capture_output=True,
                     text=True
                 )
@@ -98,7 +104,7 @@ def kill_existing_process():
             )
             
             for line in result.stdout.split('\n'):
-                if f':{PORT}' in line and 'LISTENING' in line:
+                if f':{port}' in line and 'LISTENING' in line:
                     parts = line.split()
                     pid = parts[-1]
                     print(f"⚠️  Killing existing process (PID: {pid})...")
@@ -133,12 +139,12 @@ def check_dependencies():
         print("✅ All dependencies satisfied")
 
 
-def launch_app():
-    """Launch the Flask application."""
+def launch_app(port):
+    """Launch the Flask application on the given port."""
     python = get_python_executable()
     
-    print(f"\n🚀 Launching Log Scanner Supreme...")
-    print(f"   URL: http://localhost:{PORT}")
+    print(f"\n🚀 Launching Log Scanner Supreme on port {port}...")
+    print(f"   URL: http://localhost:{port}")
     print(f"   Press Ctrl+C to stop\n")
     print("=" * 50)
     
@@ -149,7 +155,7 @@ def launch_app():
     # Launch the app
     try:
         process = subprocess.run(
-            [python, APP_FILE],
+            [python, APP_FILE, '--port', str(port)],
             cwd=SCRIPT_DIR,
             env=env
         )
@@ -158,7 +164,24 @@ def launch_app():
         sys.exit(0)
 
 
+def parse_args():
+    """Parse command-line arguments for Local Hoster compatibility."""
+    parser = argparse.ArgumentParser(description='Log Scanner Supreme Launcher')
+    parser.add_argument('-p', '--frontend-port', type=int, default=DEFAULT_PORT,
+                        help=f'Frontend port (default: {DEFAULT_PORT})')
+    parser.add_argument('-b', '--backend-port', type=int, default=None,
+                        help='Backend port (accepted for compatibility; unified server uses frontend port)')
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    app_port = args.frontend_port
+
+    if args.backend_port and args.backend_port != app_port:
+        print(f"ℹ️  Note: Log Scanner Supreme is a unified server. Running on port {app_port} (frontend port).")
+        print(f"   The -b flag ({args.backend_port}) is accepted for compatibility but this app serves both UI and API on one port.")
+
     print("\n" + "=" * 50)
     print("  Log Scanner Supreme - Launcher")
     print("=" * 50 + "\n")
@@ -167,13 +190,13 @@ def main():
     os.chdir(SCRIPT_DIR)
     
     # Kill any existing instance
-    kill_existing_process()
+    kill_existing_process(app_port)
     
     # Check dependencies
     check_dependencies()
     
     # Launch the app
-    launch_app()
+    launch_app(app_port)
 
 
 if __name__ == '__main__':

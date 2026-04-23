@@ -68,6 +68,13 @@ An AI-powered log file analyzer with a web-based interface. Upload log files, an
    python app.py
    ```
 
+Specify a different port if you want to run the server on a port other than the default 5000 using `-p <port>`:
+
+
+   python launcher.py -p 5050
+   ```
+
+
 2. **Open your browser**
    Navigate to [http://localhost:5000](http://localhost:5000)
 

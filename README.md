@@ -165,3 +165,8 @@ MIT License - Feel free to use and modify as needed.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
+
+## Local Hoster
+
+Configured for supporting the `Local Hoster` app:
+https://github.com/michaelfdickey/local-hoster

@@ -294,6 +294,27 @@ def update_settings_api():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/models/refresh', methods=['POST'])
+def refresh_models_api():
+    """Re-fetch available models from the Copilot API and update the cached list."""
+    global AVAILABLE_MODELS
+    from fetch_models import fetch_models, process_models, save_models
+
+    settings = get_settings()
+    pat = settings.get('api_key', '')
+    if not pat or not settings.get('api_key_configured'):
+        return jsonify({'error': 'GitHub PAT not configured. Please set your token first.'}), 400
+
+    try:
+        raw = fetch_models(pat)
+        chat_models = process_models(raw)
+        save_models(chat_models)
+        AVAILABLE_MODELS = load_available_models()
+        return jsonify({'models': AVAILABLE_MODELS})
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch models: {e}'}), 500
+
+
 @app.route('/api/settings/test', methods=['POST'])
 def test_api_key():
     """Test if the GitHub PAT is valid for Copilot API."""
@@ -862,4 +883,4 @@ if __name__ == '__main__':
     print("\n  Configure your GitHub PAT in Settings (click ⚙️)")
     print("="*60 + "\n")
     
-    app.run(debug=True, host='0.0.0.0', port=args.port)
+    app.run(debug=os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true'), host='127.0.0.1', port=args.port)

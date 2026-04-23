@@ -52,12 +52,9 @@ def fetch_models(pat):
     response = requests.get(API_URL, headers=headers, timeout=30)
 
     if response.status_code == 401:
-        print("Error: Unauthorized. Check that your GitHub PAT is valid and has Copilot access.")
-        sys.exit(1)
+        raise RuntimeError("Unauthorized. Check that your GitHub PAT is valid and has Copilot access.")
     elif response.status_code != 200:
-        print(f"Error: API returned status {response.status_code}")
-        print(response.text[:500])
-        sys.exit(1)
+        raise RuntimeError(f"API returned status {response.status_code}: {response.text[:200]}")
 
     data = response.json()
     return data.get("data", [])

@@ -41,13 +41,23 @@
                     </div>
                     
                     <div class="settings-group">
-                        <label for="fast-model-select">⚡ Fast Analysis Model</label>
+                        <button class="btn btn-secondary" id="edit-fast-prompts-btn" title="Edit Fast Summary Prompts">📝 Edit Prompts</button>
+                        <p class="input-help">Customize the prompts sent to the AI for Fast Summary analysis.</p>
+                    </div>
+
+                    <div class="settings-group">
                         <div class="settings-row">
-                            <select id="fast-model-select">
-                                <!-- Options populated by JavaScript -->
-                            </select>
-                            <button class="btn btn-small btn-secondary" id="edit-fast-prompts-btn" title="Edit Fast Summary Prompts">📝 Prompts</button>
+                            <label>Models</label>
+                            <button class="btn btn-small btn-secondary" id="refresh-models-btn" title="Refresh Available Models">🔄 Refresh Available Models</button>
                         </div>
+                        <div id="refresh-models-status" class="api-key-status"></div>
+                    </div>
+
+                    <div class="settings-group">
+                        <label for="fast-model-select">⚡ Fast Analysis Model</label>
+                        <select id="fast-model-select">
+                            <!-- Options populated by JavaScript -->
+                        </select>
                         <p class="input-help">Model used for Fast Summary. Lightweight models recommended.</p>
                     </div>
 

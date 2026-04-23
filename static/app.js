@@ -74,6 +74,8 @@ class LogScanner {
         this.chunkSizeInput = document.getElementById('chunk-size-input');
         this.apiKeyWarning = document.getElementById('api-key-warning');
         this.configureApiBtn = document.getElementById('configure-api-btn');
+        this.refreshModelsBtn = document.getElementById('refresh-models-btn');
+        this.refreshModelsStatus = document.getElementById('refresh-models-status');
         
         // Prompt editor elements
         this.promptEditorModal = document.getElementById('prompt-editor-modal');
@@ -154,6 +156,7 @@ class LogScanner {
         
         this.configureApiBtn.addEventListener('click', () => this.openSettings());
         this.clearBtn.addEventListener('click', () => this.clearFile());
+        this.refreshModelsBtn.addEventListener('click', () => this.refreshAvailableModels());
         
         // Prompt editor event listeners
         this.editFastPromptsBtn.addEventListener('click', () => this.openPromptEditor());
@@ -256,6 +259,54 @@ class LogScanner {
         this.apiKeyInput.value = '';
         this.apiKeyInput.type = 'password';
         this.toggleApiKey.textContent = '👁️';
+    }
+    
+    async refreshAvailableModels() {
+        this.refreshModelsBtn.disabled = true;
+        this.refreshModelsStatus.textContent = 'Fetching models...';
+        this.refreshModelsStatus.className = 'api-key-status';
+        
+        try {
+            const response = await fetch('/api/models/refresh', { method: 'POST' });
+            const data = await response.json();
+            
+            if (!response.ok) {
+                this.refreshModelsStatus.textContent = data.error || 'Failed to refresh models';
+                this.refreshModelsStatus.className = 'api-key-status error';
+                return;
+            }
+            
+            // Save current selections
+            const currentFast = this.fastModelSelect.value;
+            const currentThorough = this.modelSelect.value;
+            
+            // Repopulate dropdowns
+            this.modelSelect.innerHTML = '';
+            this.fastModelSelect.innerHTML = '';
+            data.models.forEach(model => {
+                const label = this.formatModelLabel(model);
+                
+                const option1 = document.createElement('option');
+                option1.value = model.id;
+                option1.textContent = label;
+                option1.selected = model.id === currentThorough;
+                this.modelSelect.appendChild(option1);
+                
+                const option2 = document.createElement('option');
+                option2.value = model.id;
+                option2.textContent = label;
+                option2.selected = model.id === currentFast;
+                this.fastModelSelect.appendChild(option2);
+            });
+            
+            this.refreshModelsStatus.textContent = `Found ${data.models.length} models`;
+            this.refreshModelsStatus.className = 'api-key-status success';
+        } catch (error) {
+            this.refreshModelsStatus.textContent = 'Network error refreshing models';
+            this.refreshModelsStatus.className = 'api-key-status error';
+        } finally {
+            this.refreshModelsBtn.disabled = false;
+        }
     }
     
     // ==================== Prompt Editor Methods ====================

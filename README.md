@@ -75,7 +75,7 @@ An AI-powered log file analyzer with a web-based interface. Upload log files, an
 
 
 2. **Open your browser**
-   Navigate to [http://localhost:5000](http://localhost:5000)
+   Navigate to [http://localhost:5000](http://localhost:5000) or your specified port, e.g., [http://localhost:5050](http://localhost:5050) if you used `-p 5050`.
 
 3. **Configure** (if not already done)
    - Click the ⚙️ Settings button
